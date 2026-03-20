@@ -82,8 +82,13 @@ BASE_DOCS_DIR = os.path.join(APP_DIR, "base_docs")
 
 # Streamlit Cloud tem filesystem read-only — usa /tmp para o índice vetorial
 # Localmente usa a pasta do projeto para persistir entre sessões
-_IS_CLOUD = os.path.exists("/mount/src")
-CHROMA_DIR = "/tmp/fleetpro_chroma_db" if _IS_CLOUD else os.path.join(APP_DIR, "chroma_db")
+# Detecta ambiente cloud — usa /tmp que é sempre gravável
+_IS_CLOUD = os.path.exists("/mount/src") or not os.access(APP_DIR, os.W_OK)
+if _IS_CLOUD:
+    CHROMA_DIR = "/tmp/fleetpro_chroma_db"
+    os.makedirs(CHROMA_DIR, exist_ok=True)
+else:
+    CHROMA_DIR = os.path.join(APP_DIR, "chroma_db")
 COLLECTION_NAME = "fleetpro_kb_v2"
 
 # Arquivo principal de lookup de PN (CSV preferido, Excel como fallback)
@@ -267,6 +272,30 @@ MAPA_PALAVRAS_COLUNAS = {
     "NEW HOLLAND": ["tractor_nhag", "combine_nhag", "headers_nhag",
                     "sprayers_nhag", "planters_nhag",
                     "forage_balers_and_others_nhag", "other_machines_nhag"],
+    # ── Modelos específicos Case IH ──────────────────────────────────────
+    "MAGNUM":     ["tractor_case_ih"],
+    "MAXXUM":     ["tractor_case_ih"],
+    "OPTUM":      ["tractor_case_ih"],
+    "FARMALL":    ["tractor_case_ih"],
+    "PUMA":       ["tractor_case_ih"],
+    "AXIAL":      ["combine_case_ih"],
+    "AXIAL-FLOW": ["combine_case_ih"],
+    "AF":         ["combine_case_ih"],
+    "DRAPER":     ["headers_case_ih"],
+    "FLEX":       ["headers_case_ih"],
+    "PATRIOT":    ["sprayers_case_ih"],
+    "EARLY RISER":["planters_case_ih"],
+    # ── Modelos específicos New Holland ──────────────────────────────────
+    "T6":         ["tractor_nhag"],
+    "T7":         ["tractor_nhag"],
+    "T8":         ["tractor_nhag"],
+    "T9":         ["tractor_nhag"],
+    "TC":         ["combine_nhag"],
+    "CR":         ["combine_nhag"],
+    "CX":         ["combine_nhag"],
+    "FR":         ["forage_balers_and_others_nhag"],
+    "GUARDIAN":   ["sprayers_nhag"],
+    "BOOMER":     ["tractor_nhag"],
     # Segmentos
     "AG": ["ag"],
     "AGRICULTURE": ["ag"],
@@ -852,6 +881,89 @@ def _extrair_palavras_extras(mensagem: str, termo_mkt: str) -> list:
 
 
 
+
+def buscar_equip_e_marketing(
+    df: "pd.DataFrame",
+    mensagem: str,
+    colunas_equip: list,
+    termo_marketing: str,
+    max_resultados: int = 50,
+) -> str:
+    """
+    Busca combinada: filtra por categoria de produto (marketing_project)
+    E por equipamento (colunas de modelo). Ex: rolamento + trator case ih.
+    """
+    import unicodedata
+
+    def norm_sem_acento(s: str) -> str:
+        return unicodedata.normalize("NFD", s.upper()).encode("ascii", "ignore").decode("ascii")
+
+    # Resolve sinônimo de marketing
+    termo_upper = termo_marketing.upper()
+    termo_busca = MAPA_SINONIMOS_MARKETING.get(termo_upper, termo_upper)
+    if termo_busca == termo_upper:
+        termo_busca = MAPA_SINONIMOS_MARKETING.get(norm_sem_acento(termo_upper), termo_upper)
+
+    # Filtro 1: categoria (marketing_project)
+    if COLUNA_MARKETING not in df.columns:
+        return buscar_por_equipamento(df, mensagem, colunas_equip, max_resultados)
+
+    mask_mkt = (
+        df[COLUNA_MARKETING].notna()
+        & df[COLUNA_MARKETING].astype(str).str.upper().str.contains(
+            re.escape(termo_busca), na=False
+        )
+    )
+    df_filtrado = df[mask_mkt].copy()
+
+    if df_filtrado.empty:
+        # Fallback: só por equipamento
+        return buscar_por_equipamento(df, mensagem, colunas_equip, max_resultados)
+
+    # Filtro 2: equipamento (dentro do df já filtrado por categoria)
+    # Extrai modelo da mensagem para filtrar
+    tokens = re.findall(r"[A-Za-z0-9]+", mensagem.upper())
+    palavras_genericas = {
+        "QUAIS", "QUAL", "PN", "PARA", "DE", "DO", "DA", "UM", "UMA",
+        "ROLAMENTO", "ROLAMENTOS", "FILTRO", "FILTROS", "CORREIA", "CORREIAS",
+        "CASE", "NHAG", "TRATOR", "TRACTOR", "COMBINE", "COLHEITADEIRA",
+        "NEW", "HOLLAND", "IH", "PRECISO", "QUERO", "TEM", "HAI",
+    }
+    candidatos_modelo = [t for t in tokens if t not in palavras_genericas and len(t) >= 3]
+
+    mask_equip = pd.Series([False] * len(df_filtrado), index=df_filtrado.index)
+    for col in colunas_equip:
+        if col in df_filtrado.columns:
+            mask_col = df_filtrado[col].notna() & ~df_filtrado[col].isin(["-", "", "NaN", "nan"])
+            if candidatos_modelo and col in COLUNAS_MODELOS_EQUIP:
+                def contem_modelo_combo(val):
+                    if pd.isna(val): return False
+                    itens = [x.strip().upper() for x in str(val).split(";")]
+                    return any(any(cm in item for cm in candidatos_modelo) for item in itens)
+                mask_col = mask_col & df_filtrado[col].apply(contem_modelo_combo)
+            mask_equip = mask_equip | mask_col
+
+    df_combinado = df_filtrado[mask_equip].copy()
+
+    # Se filtro combinado vazio, usa só o de marketing
+    if df_combinado.empty:
+        df_combinado = df_filtrado.copy()
+
+    if len(df_combinado) > max_resultados:
+        df_combinado = df_combinado.head(max_resultados)
+
+    total = len(df_combinado)
+    cols_label = ", ".join(c.replace("_", " ").upper() for c in colunas_equip[:2])
+    partes = [f"Encontrei **{total}** produto(s) — **{termo_busca}** para **{cols_label}**:\n"]
+
+    for i, (idx_df, _) in enumerate(df_combinado.iterrows(), start=1):
+        row_index_df = df.index.get_loc(idx_df)
+        partes.append(f"### Produto {i}\n")
+        partes.append(formatar_linha_como_lista(df, int(row_index_df)))
+        partes.append("")
+
+    return "\n".join(partes)
+
 def _normalizar_tt(x) -> str:
     """Normaliza TT code: remove espaços e converte para string limpa."""
     if x is None:
@@ -1267,6 +1379,12 @@ def pagina_chat():
                 if tt_code:
                     # Busca por TT code
                     resultado_matriz = buscar_por_tt_code(df_fp, tt_code, max_resultados)
+                elif colunas_equip and termo_marketing:
+                    # ── Busca combinada: equipamento + categoria ──────────────
+                    # Ex: "rolamento para trator case" → filtra CASE IH + ROLAMENTOS
+                    resultado_matriz = buscar_equip_e_marketing(
+                        df_fp, input_usuario, colunas_equip, termo_marketing, max_resultados
+                    )
                 elif colunas_equip:
                     # Busca por fabricante / tipo de máquina
                     resultado_matriz = buscar_por_equipamento(df_fp, input_usuario, colunas_equip, max_resultados)
