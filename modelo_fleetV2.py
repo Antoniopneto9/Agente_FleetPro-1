@@ -53,22 +53,10 @@ class ConversationBufferMemory:
     def buffer_as_messages(self):
         return [type("Msg", (), {"type": t, "content": c})() for t, c in self._msgs]
 
+from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
-
-try:
-    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-except ImportError:
-    ChatOpenAI = None
-    OpenAIEmbeddings = None
-
-try:
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except ImportError:
-    try:
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
-    except ImportError:
-        from langchain_community.text_splitter import RecursiveCharacterTextSplitter
-
+from langchain_openai import OpenAIEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, CSVLoader
 from langchain_core.documents import Document
@@ -79,39 +67,29 @@ from langchain_core.documents import Document
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 BASE_DOCS_DIR = os.path.join(APP_DIR, "base_docs")
-
-# Streamlit Cloud tem filesystem read-only — usa /tmp para o índice vetorial
-# Localmente usa a pasta do projeto para persistir entre sessões
-# Detecta ambiente cloud — usa /tmp que é sempre gravável
-_IS_CLOUD = os.path.exists("/mount/src") or not os.access(APP_DIR, os.W_OK)
-if _IS_CLOUD:
-    CHROMA_DIR = "/tmp/fleetpro_chroma_db"
-    os.makedirs(CHROMA_DIR, exist_ok=True)
-else:
-    CHROMA_DIR = os.path.join(APP_DIR, "chroma_db")
+CHROMA_DIR = os.path.join(APP_DIR, "chroma_db")
 COLLECTION_NAME = "fleetpro_kb_v2"
 
-# Arquivo principal de lookup de PN (CSV preferido, Excel como fallback)
-MATRIX_CSV   = "Matriz_FP.csv"
+# Arquivo Excel principal (lookup de PN)
 MATRIX_EXCEL = "Matriz_FP.xlsx"
 SHEET_FP_MATRIZ = "FP MATRIZ"
-COLUNAS_BUSCA_PN = ["pn_gen", "pn_alternative", "pn_nxp", "pn_fleetpro"]
+COLUNAS_BUSCA_PN = ["PN GEN", "PN ALTERNATIVE", "PN NXP", "PN FLEETPRO"]
 
 # Colunas que contêm modelos de equipamentos CASE IH / NHAG (texto com nomes de modelos)
 COLUNAS_MODELOS_EQUIP = [
-    "tractor_case_ih", "combine_case_ih", "headers_case_ih",
-    "sch_case_ih", "sprayers_case_ih", "planters_case_ih",
-    "other_machines_case_ih",
-    "tractor_nhag", "combine_nhag", "headers_nhag",
-    "sprayers_nhag", "planters_nhag",
-    "forage_balers_and_others_nhag", "other_machines_nhag",
+    "TRACTOR - CASE IH", "COMBINE - CASE IH", "HEADERS - CASE IH",
+    "SCH - CASE IH", "SPRAYERS - CASE IH", "PLANTERS - CASE IH",
+    "OTHER MACHINES - CASE IH",
+    "TRACTOR - NHAG", "COMBINE - NHAG", "HEADERS - NHAG",
+    "SPRAYERS - NHAG", "PLANTERS - NHAG",
+    "FORAGE, BALERS and OTHERS - NHAG", "OTHER MACHINES - NHAG",
 ]
 
 # Colunas que contêm PNs originais de outras marcas
-COLUNAS_MARCAS_PN = ["john_deere", "macdon", "agco", "ideal", "massey_ferguson", "valtra"]
+COLUNAS_MARCAS_PN = ["JOHN DEERE", "MACDON", "AGCO", "IDEAL", "MASSEY FERGUSON", "VALTRA"]
 
 # Coluna de projeto de marketing (busca por tipo de produto/categoria)
-COLUNA_MARKETING = "marketing_project"
+COLUNA_MARKETING = "MARKETING PROJECT"
 
 # Valores exatos que aparecem na coluna MARKETING PROJECT da planilha.
 # Cada entrada é um valor real + sinônimos/variações que o usuário pode digitar.
@@ -240,72 +218,38 @@ MAPA_SINONIMOS_MARKETING = {
 
 # Mapa de palavras-chave para nomes de colunas (busca por fabricante/tipo)
 MAPA_PALAVRAS_COLUNAS = {
-    "JOHN DEERE": ["john_deere"],
-    "JD": ["john_deere"],
-    "DEERE": ["john_deere"],
-    "MACDON": ["macdon"],
-    "AGCO": ["agco"],
-    "IDEAL": ["ideal"],
-    "MASSEY": ["massey_ferguson"],
-    "MASSEY FERGUSON": ["massey_ferguson"],
-    "MF": ["massey_ferguson"],
-    "VALTRA": ["valtra"],
-    "CASE": ["tractor_case_ih", "combine_case_ih", "headers_case_ih",
-             "sch_case_ih", "sprayers_case_ih", "planters_case_ih",
-             "other_machines_case_ih"],
-    "CASE IH": ["tractor_case_ih", "combine_case_ih", "headers_case_ih",
-                "sch_case_ih", "sprayers_case_ih", "planters_case_ih",
-                "other_machines_case_ih"],
-    "TRATOR": ["tractor_case_ih", "tractor_nhag"],
-    "TRACTOR": ["tractor_case_ih", "tractor_nhag"],
-    "COLHEITADEIRA": ["combine_case_ih", "combine_nhag"],
-    "COMBINE": ["combine_case_ih", "combine_nhag"],
-    "HEADER": ["headers_case_ih", "headers_nhag"],
-    "PLATAFORMA": ["headers_case_ih", "headers_nhag"],
-    "PULVERIZADOR": ["sprayers_case_ih", "sprayers_nhag"],
-    "SPRAYER": ["sprayers_case_ih", "sprayers_nhag"],
-    "PLANTADEIRA": ["planters_case_ih", "planters_nhag"],
-    "PLANTER": ["planters_case_ih", "planters_nhag"],
-    "NHAG": ["tractor_nhag", "combine_nhag", "headers_nhag",
-             "sprayers_nhag", "planters_nhag",
-             "forage_balers_and_others_nhag", "other_machines_nhag"],
-    "NEW HOLLAND": ["tractor_nhag", "combine_nhag", "headers_nhag",
-                    "sprayers_nhag", "planters_nhag",
-                    "forage_balers_and_others_nhag", "other_machines_nhag"],
-    # ── Modelos específicos Case IH ──────────────────────────────────────
-    "MAGNUM":     ["tractor_case_ih"],
-    "MAXXUM":     ["tractor_case_ih"],
-    "OPTUM":      ["tractor_case_ih"],
-    "FARMALL":    ["tractor_case_ih"],
-    "PUMA":       ["tractor_case_ih"],
-    "AXIAL":      ["combine_case_ih"],
-    "AXIAL-FLOW": ["combine_case_ih"],
-    "AF":         ["combine_case_ih"],
-    "DRAPER":     ["headers_case_ih"],
-    "FLEX":       ["headers_case_ih"],
-    "PATRIOT":    ["sprayers_case_ih"],
-    "EARLY RISER":["planters_case_ih"],
-    # ── Modelos específicos New Holland ──────────────────────────────────
-    "T6":         ["tractor_nhag"],
-    "T7":         ["tractor_nhag"],
-    "T8":         ["tractor_nhag"],
-    "T9":         ["tractor_nhag"],
-    "TC":         ["combine_nhag"],
-    "CR":         ["combine_nhag"],
-    "CX":         ["combine_nhag"],
-    "FR":         ["forage_balers_and_others_nhag"],
-    "GUARDIAN":   ["sprayers_nhag"],
-    "BOOMER":     ["tractor_nhag"],
-    # Segmentos
-    "AG": ["ag"],
-    "AGRICULTURE": ["ag"],
-    "AGRICOLA": ["ag"],
-    "AGRÍCOLA": ["ag"],
-    "CE": ["ce"],
-    "CONSTRUCTION": ["ce"],
-    "CONSTRUCAO": ["ce"],
-    "CONSTRUÇÃO": ["ce"],
-    "AM": ["am"],
+    "JOHN DEERE": ["JOHN DEERE"],
+    "JD": ["JOHN DEERE"],
+    "DEERE": ["JOHN DEERE"],
+    "MACDON": ["MACDON"],
+    "AGCO": ["AGCO"],
+    "IDEAL": ["IDEAL"],
+    "MASSEY": ["MASSEY FERGUSON"],
+    "MASSEY FERGUSON": ["MASSEY FERGUSON"],
+    "MF": ["MASSEY FERGUSON"],
+    "VALTRA": ["VALTRA"],
+    "CASE": ["TRACTOR - CASE IH", "COMBINE - CASE IH", "HEADERS - CASE IH",
+             "SCH - CASE IH", "SPRAYERS - CASE IH", "PLANTERS - CASE IH",
+             "OTHER MACHINES - CASE IH"],
+    "CASE IH": ["TRACTOR - CASE IH", "COMBINE - CASE IH", "HEADERS - CASE IH",
+                "SCH - CASE IH", "SPRAYERS - CASE IH", "PLANTERS - CASE IH",
+                "OTHER MACHINES - CASE IH"],
+    "TRATOR": ["TRACTOR - CASE IH", "TRACTOR - NHAG"],
+    "TRACTOR": ["TRACTOR - CASE IH", "TRACTOR - NHAG"],
+    "COLHEITADEIRA": ["COMBINE - CASE IH", "COMBINE - NHAG"],
+    "COMBINE": ["COMBINE - CASE IH", "COMBINE - NHAG"],
+    "HEADER": ["HEADERS - CASE IH", "HEADERS - NHAG"],
+    "PLATAFORMA": ["HEADERS - CASE IH", "HEADERS - NHAG"],
+    "PULVERIZADOR": ["SPRAYERS - CASE IH", "SPRAYERS - NHAG"],
+    "SPRAYER": ["SPRAYERS - CASE IH", "SPRAYERS - NHAG"],
+    "PLANTADEIRA": ["PLANTERS - CASE IH", "PLANTERS - NHAG"],
+    "PLANTER": ["PLANTERS - CASE IH", "PLANTERS - NHAG"],
+    "NHAG": ["TRACTOR - NHAG", "COMBINE - NHAG", "HEADERS - NHAG",
+             "SPRAYERS - NHAG", "PLANTERS - NHAG",
+             "FORAGE, BALERS and OTHERS - NHAG", "OTHER MACHINES - NHAG"],
+    "NEW HOLLAND": ["TRACTOR - NHAG", "COMBINE - NHAG", "HEADERS - NHAG",
+                    "SPRAYERS - NHAG", "PLANTERS - NHAG",
+                    "FORAGE, BALERS and OTHERS - NHAG", "OTHER MACHINES - NHAG"],
 }
 
 TIPOS_RAG = (".pdf", ".txt", ".csv", ".pptx", ".ppt", ".md", ".docx")
@@ -387,28 +331,12 @@ def _split_docs(docs):
 # ======================
 # RAG – Documentos de conhecimento
 # ======================
-# Arquivos a excluir do RAG (são usados pelo lookup direto ou são binários)
-_EXCLUIR_DO_RAG = {"Matriz_FP.csv", "Matriz_FP.xlsx", "Matriz_FP.xls"}
-
 def _listar_arquivos_rag(pasta: str):
-    """
-    Lista recursivamente arquivos RAG em subpastas de base_docs/.
-    EXCLUI: arquivos da raiz (logos, Excel/CSV da matriz) — apenas subpastas entram no RAG.
-    """
+    """Lista recursivamente todos os arquivos RAG em pasta e subpastas."""
     arquivos = []
     for ext in TIPOS_RAG:
-        for arq in glob.glob(os.path.join(pasta, "**", f"*{ext}"), recursive=True):
-            if not os.path.isfile(arq):
-                continue
-            nome = os.path.basename(arq)
-            # Exclui arquivos da matriz e arquivos direto na raiz base_docs
-            if nome in _EXCLUIR_DO_RAG:
-                continue
-            # Exclui arquivos direto na raiz (logos, etc) — só subpastas entram
-            if os.path.dirname(arq) == pasta:
-                continue
-            arquivos.append(arq)
-    return sorted(set(arquivos))
+        arquivos.extend(glob.glob(os.path.join(pasta, "**", f"*{ext}"), recursive=True))
+    return sorted(set([a for a in arquivos if os.path.isfile(a)]))
 
 
 def _hash_dos_arquivos(lista_arquivos) -> str:
@@ -481,62 +409,35 @@ def _carregar_pptx(path: str) -> list:
         return []
 
 
-def _deve_indexar(path: str, pasta_raiz: str) -> bool:
-    """Retorna True se o arquivo deve ser indexado no RAG."""
-    nome = os.path.basename(path)
-    # Exclui arquivos da matriz
-    if nome in _EXCLUIR_DO_RAG:
-        return False
-    # Exclui arquivos direto na raiz base_docs (logos, etc)
-    if os.path.dirname(os.path.abspath(path)) == os.path.abspath(pasta_raiz):
-        return False
-    return True
-
-
 def _carregar_documentos_rag(pasta: str):
-    """
-    Carrega documentos RAG apenas das SUBPASTAS de base_docs/.
-    Exclui: Matriz_FP.csv/xlsx, arquivos na raiz, imagens.
-    """
+    """Carrega recursivamente todos os documentos RAG de pasta e subpastas."""
     docs = []
 
     for path in glob.glob(os.path.join(pasta, "**", "*.pdf"), recursive=True):
-        if not _deve_indexar(path, pasta):
-            continue
         try:
             docs.extend(PyPDFLoader(path).load())
         except Exception as e:
             st.warning(f"Não consegui ler {os.path.basename(path)}: {e}")
 
     for path in glob.glob(os.path.join(pasta, "**", "*.txt"), recursive=True):
-        if not _deve_indexar(path, pasta):
-            continue
         try:
             docs.extend(TextLoader(path, encoding="utf-8").load())
         except Exception as e:
             st.warning(f"Não consegui ler {os.path.basename(path)}: {e}")
 
     for path in glob.glob(os.path.join(pasta, "**", "*.csv"), recursive=True):
-        if not _deve_indexar(path, pasta):
-            continue
         try:
             docs.extend(CSVLoader(path, encoding="utf-8").load())
         except Exception as e:
             st.warning(f"Não consegui ler {os.path.basename(path)}: {e}")
 
     for path in glob.glob(os.path.join(pasta, "**", "*.pptx"), recursive=True):
-        if not _deve_indexar(path, pasta):
-            continue
         docs.extend(_carregar_pptx(path))
 
     for path in glob.glob(os.path.join(pasta, "**", "*.ppt"), recursive=True):
-        if not _deve_indexar(path, pasta):
-            continue
         docs.extend(_carregar_pptx(path))
 
     for path in glob.glob(os.path.join(pasta, "**", "*.md"), recursive=True):
-        if not _deve_indexar(path, pasta):
-            continue
         try:
             md_docs = TextLoader(path, encoding="utf-8").load()
             # Injeta nome do arquivo e pasta no conteúdo para melhorar busca semântica
@@ -551,8 +452,6 @@ def _carregar_documentos_rag(pasta: str):
             st.warning(f"Não consegui ler {os.path.basename(path)}: {e}")
 
     for path in glob.glob(os.path.join(pasta, "**", "*.docx"), recursive=True):
-        if not _deve_indexar(path, pasta):
-            continue
         try:
             from langchain_community.document_loaders import Docx2txtLoader
             docs.extend(Docx2txtLoader(path).load())
@@ -562,7 +461,7 @@ def _carregar_documentos_rag(pasta: str):
     return docs
 
 
-@st.cache_resource(show_spinner="⏳ Indexando documentos... (pode levar alguns minutos na primeira vez)")
+@st.cache_resource(show_spinner="Indexando documentos de conhecimento (RAG)...")
 def obter_vectorstore():
     """
     Cria ou carrega o banco vetorial (Chroma) com documentos locais + site FleetPro.
@@ -704,107 +603,25 @@ def buscar_no_rag(vectorstore, query: str, k: int = 3):
 # ======================
 @st.cache_data(show_spinner="Carregando Matriz FP...")
 def carregar_df_fp_matriz(file_path: str, sheet_name: str) -> "pd.DataFrame":
-    """
-    Carrega a matriz FP. Aceita CSV ou Excel.
-    Prioriza CSV se existir no mesmo diretório com mesmo nome base.
-    """
-    # Colunas esperadas na planilha (exatas 35 colunas)
-    _COLUNAS_CSV = [
-        "marketing_project","description","pn_gen","pn_alternative","pn_nxp","pn_fleetpro",
-        "launched_quarter","launched_month","ano","modal","ag","ce","am",
-        "tractor_case_ih","combine_case_ih","headers_case_ih","sch_case_ih",
-        "sprayers_case_ih","planters_case_ih","other_machines_case_ih",
-        "tractor_nhag","combine_nhag","headers_nhag","sprayers_nhag","planters_nhag",
-        "forage_balers_and_others_nhag","other_machines_nhag",
-        "montadora","john_deere","macdon","agco","ideal","massey_ferguson","valtra","cd_tech_type",
-    ]
-
-    # Verifica se existe versão CSV (menor e mais rápida)
-    csv_path = os.path.splitext(file_path)[0] + ".csv"
-    if os.path.exists(csv_path):
-        try:
-            # Lê apenas as primeiras 35 colunas, ignorando colunas extras vazias do final
-            df = pd.read_csv(
-                csv_path,
-                encoding="utf-8",
-                low_memory=False,
-                usecols=range(len(_COLUNAS_CSV)),   # ignora colunas extras
-                names=_COLUNAS_CSV,                  # força nomes corretos
-                header=0,                            # primeira linha é cabeçalho original
-                on_bad_lines="skip",
-            )
-        except UnicodeDecodeError:
-            df = pd.read_csv(
-                csv_path,
-                encoding="latin1",
-                low_memory=False,
-                usecols=range(len(_COLUNAS_CSV)),
-                names=_COLUNAS_CSV,
-                header=0,
-                on_bad_lines="skip",
-            )
-    else:
-        df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
-
-    # Normaliza nomes de colunas: lowercase + underscore
-    df.columns = [
-        str(c).strip().lower()
-        .replace(" ", "_").replace("-", "_").replace("/", "_").replace(".", "_")
-        for c in df.columns
-    ]
+    df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+    df.columns = [str(c).strip() for c in df.columns]
     for c in COLUNAS_BUSCA_PN:
         if c not in df.columns:
             df[c] = ""
     return df
 
 
-# Colunas prioritárias para exibir no resultado
-_COLUNAS_EXIBIR = [
-    "description", "pn_fleetpro", "pn_gen", "pn_alternative", "pn_nxp",
-    "marketing_project", "montadora", "modal", "ag", "ce", "am",
-    "cd_tech_type", "launched_quarter", "launched_month", "ano",
-    "tractor_case_ih", "combine_case_ih", "headers_case_ih",
-    "sch_case_ih", "sprayers_case_ih", "planters_case_ih", "other_machines_case_ih",
-    "tractor_nhag", "combine_nhag", "headers_nhag",
-    "sprayers_nhag", "planters_nhag", "forage_balers_and_others_nhag", "other_machines_nhag",
-    "john_deere", "macdon", "agco", "ideal", "massey_ferguson", "valtra",
-]
-
 def formatar_linha_como_lista(df: "pd.DataFrame", row_index_df: int) -> str:
     if row_index_df < 0 or row_index_df >= len(df):
         return "Índice fora do intervalo."
     row = df.iloc[row_index_df]
     partes = []
-    # Colunas que contêm listas de modelos separados por ;
-    _COLUNAS_LISTA = set(COLUNAS_MODELOS_EQUIP) | {"cd_tech_type"}
-
-    # Exibe colunas prioritárias primeiro, depois o restante
-    cols_usadas = []
-    for col in _COLUNAS_EXIBIR:
-        if col in df.columns:
-            val = row[col]
-            if not pd.isna(val) and str(val).strip() not in ("", "-", "nan", "NaN"):
-                val_str = _formatar_lista_equip(str(val)) if col in _COLUNAS_LISTA else str(val).strip()
-                col_label = col.replace("_", " ").title()
-                partes.append(f"- **{col_label}**: {val_str}")
-            cols_usadas.append(col)
-    # Demais colunas não listadas acima
     for col in df.columns:
-        if col not in cols_usadas:
-            val = row[col]
-            if not pd.isna(val) and str(val).strip() not in ("", "-", "nan", "NaN"):
-                partes.append(f"- {col}: {str(val).strip()}")
-    return "\n".join(partes) if partes else "Sem dados disponíveis."
-
-
-def _formatar_lista_equip(val: str) -> str:
-    """Formata lista de equipamentos separada por ; em formato legível."""
-    if not val or str(val).strip() in ("", "-", "nan", "NaN"):
-        return ""
-    itens = [x.strip() for x in str(val).split(";") if x.strip()]
-    if len(itens) <= 1:
-        return val
-    return ", ".join(itens)
+        val = row[col]
+        if pd.isna(val):
+            val = ""
+        partes.append(f"- {col}: {str(val).strip()}")
+    return "\n".join(partes)
 
 
 def detectar_busca_por_equipamento(mensagem: str):
@@ -879,157 +696,6 @@ def _extrair_palavras_extras(mensagem: str, termo_mkt: str) -> list:
     ]
     return list(dict.fromkeys(extras))
 
-
-
-
-def buscar_equip_e_marketing(
-    df: "pd.DataFrame",
-    mensagem: str,
-    colunas_equip: list,
-    termo_marketing: str,
-    max_resultados: int = 50,
-) -> str:
-    """
-    Busca combinada: filtra por categoria de produto (marketing_project)
-    E por equipamento (colunas de modelo). Ex: rolamento + trator case ih.
-    """
-    import unicodedata
-
-    def norm_sem_acento(s: str) -> str:
-        return unicodedata.normalize("NFD", s.upper()).encode("ascii", "ignore").decode("ascii")
-
-    # Resolve sinônimo de marketing
-    termo_upper = termo_marketing.upper()
-    termo_busca = MAPA_SINONIMOS_MARKETING.get(termo_upper, termo_upper)
-    if termo_busca == termo_upper:
-        termo_busca = MAPA_SINONIMOS_MARKETING.get(norm_sem_acento(termo_upper), termo_upper)
-
-    # Filtro 1: categoria (marketing_project)
-    if COLUNA_MARKETING not in df.columns:
-        return buscar_por_equipamento(df, mensagem, colunas_equip, max_resultados)
-
-    mask_mkt = (
-        df[COLUNA_MARKETING].notna()
-        & df[COLUNA_MARKETING].astype(str).str.upper().str.contains(
-            re.escape(termo_busca), na=False
-        )
-    )
-    df_filtrado = df[mask_mkt].copy()
-
-    if df_filtrado.empty:
-        # Fallback: só por equipamento
-        return buscar_por_equipamento(df, mensagem, colunas_equip, max_resultados)
-
-    # Filtro 2: equipamento (dentro do df já filtrado por categoria)
-    # Extrai modelo da mensagem para filtrar
-    tokens = re.findall(r"[A-Za-z0-9]+", mensagem.upper())
-    palavras_genericas = {
-        "QUAIS", "QUAL", "PN", "PARA", "DE", "DO", "DA", "UM", "UMA",
-        "ROLAMENTO", "ROLAMENTOS", "FILTRO", "FILTROS", "CORREIA", "CORREIAS",
-        "CASE", "NHAG", "TRATOR", "TRACTOR", "COMBINE", "COLHEITADEIRA",
-        "NEW", "HOLLAND", "IH", "PRECISO", "QUERO", "TEM", "HAI",
-    }
-    candidatos_modelo = [t for t in tokens if t not in palavras_genericas and len(t) >= 3]
-
-    mask_equip = pd.Series([False] * len(df_filtrado), index=df_filtrado.index)
-    for col in colunas_equip:
-        if col in df_filtrado.columns:
-            mask_col = df_filtrado[col].notna() & ~df_filtrado[col].isin(["-", "", "NaN", "nan"])
-            if candidatos_modelo and col in COLUNAS_MODELOS_EQUIP:
-                def contem_modelo_combo(val):
-                    if pd.isna(val): return False
-                    itens = [x.strip().upper() for x in str(val).split(";")]
-                    return any(any(cm in item for cm in candidatos_modelo) for item in itens)
-                mask_col = mask_col & df_filtrado[col].apply(contem_modelo_combo)
-            mask_equip = mask_equip | mask_col
-
-    df_combinado = df_filtrado[mask_equip].copy()
-
-    # Se filtro combinado vazio, usa só o de marketing
-    if df_combinado.empty:
-        df_combinado = df_filtrado.copy()
-
-    if len(df_combinado) > max_resultados:
-        df_combinado = df_combinado.head(max_resultados)
-
-    total = len(df_combinado)
-    cols_label = ", ".join(c.replace("_", " ").upper() for c in colunas_equip[:2])
-    partes = [f"Encontrei **{total}** produto(s) — **{termo_busca}** para **{cols_label}**:\n"]
-
-    for i, (idx_df, _) in enumerate(df_combinado.iterrows(), start=1):
-        row_index_df = df.index.get_loc(idx_df)
-        partes.append(f"### Produto {i}\n")
-        partes.append(formatar_linha_como_lista(df, int(row_index_df)))
-        partes.append("")
-
-    return "\n".join(partes)
-
-def _normalizar_tt(x) -> str:
-    """Normaliza TT code: remove espaços e converte para string limpa."""
-    if x is None:
-        return ""
-    return re.sub(r"\s+", "", str(x).strip())
-
-
-def buscar_por_tt_code(df: "pd.DataFrame", tt_code: str, max_resultados: int = 50) -> str:
-    """
-    Busca por TT code (cd_tech_type).
-    Cada célula pode conter múltiplos códigos separados por vírgula ou ponto-e-vírgula.
-    """
-    if "cd_tech_type" not in df.columns:
-        return "⚠️ Coluna `cd_tech_type` não encontrada na planilha."
-
-    tt_norm = _normalizar_tt(tt_code)
-    if not tt_norm:
-        return ""
-
-    # Expande células com múltiplos TT codes e verifica match
-    def contem_tt(val):
-        if pd.isna(val):
-            return False
-        # Split por vírgula, ponto-e-vírgula ou espaço
-        codigos = re.split(r"[,;]+", str(val).strip())
-        return any(_normalizar_tt(c.strip()) == tt_norm for c in codigos if c.strip())
-
-    mask = df["cd_tech_type"].apply(contem_tt)
-    encontrados = df[mask]
-
-    if encontrados.empty:
-        return f"Não encontrei nenhum produto para o TT code `{tt_code}` na matriz FP."
-
-    if len(encontrados) > max_resultados:
-        encontrados = encontrados.head(max_resultados)
-
-    partes = [f"Encontrei **{len(encontrados)}** produto(s) para o TT code `{tt_code}`:\n"]
-    for i, (idx_df, _) in enumerate(encontrados.iterrows(), start=1):
-        row_index_df = df.index.get_loc(idx_df)
-        partes.append(f"### Produto {i}\n")
-        partes.append(formatar_linha_como_lista(df, int(row_index_df)))
-        partes.append("")
-    return "\n".join(partes)
-
-
-def detectar_tt_code(mensagem: str) -> str:
-    """
-    Detecta TT code na mensagem — sequência numérica de 4+ dígitos
-    precedida por 'TT', 'tt', 'tech type', 'techtype' ou isolada como número puro.
-    Retorna o código detectado ou string vazia.
-    """
-    # Padrão explícito: TT seguido de número
-    m = re.search(r"\b[Tt][Tt]\s*(\d{4,})", mensagem)
-    if m:
-        return m.group(1)
-    # "tech type 12345" ou "techtype 12345"
-    m = re.search(r"tech\s*type\s*(\d{4,})", mensagem, re.IGNORECASE)
-    if m:
-        return m.group(1)
-    # Número puro de 5+ dígitos que não seja PN (PNs têm letras)
-    # Só detecta se a mensagem mencionar "TT" ou "tech"
-    if re.search(r"\b(tt|tech)\b", mensagem, re.IGNORECASE):
-        m = re.search(r"\b(\d{4,})\b", mensagem)
-        if m:
-            return m.group(1)
-    return ""
 
 def buscar_por_marketing(
     df: "pd.DataFrame",
@@ -1115,10 +781,10 @@ def buscar_por_marketing(
     ]
 
     for _, row in df_filtrado.iterrows():
-        pn_fp   = str(row.get("pn_fleetpro", "") or "").strip()
-        pn_gen  = str(row.get("pn_gen", "")  or "").strip()
-        descr   = str(row.get("description", "") or "").strip()
-        mkt_val = str(row.get("marketing_project", "") or "").strip()
+        pn_fp   = str(row.get("PN FLEETPRO", "") or "").strip()
+        pn_gen  = str(row.get("PN GEN", "")  or "").strip()
+        descr   = str(row.get("DESCRIPTION", "") or "").strip()
+        mkt_val = str(row.get(COLUNA_MARKETING, "") or "").strip()
 
         partes = [f"- **{descr}**" if descr else "- *(sem descrição)*"]
         if mkt_val and mkt_val not in ("-", ""):
@@ -1166,13 +832,7 @@ def buscar_por_equipamento(df: "pd.DataFrame", mensagem: str, colunas_alvo: list
             continue
 
         if modelo_filtro and col in COLUNAS_MODELOS_EQUIP:
-            # Busca em listas separadas por ponto-e-vírgula dentro da célula
-            def contem_modelo(val):
-                if pd.isna(val):
-                    return False
-                itens = [x.strip().upper() for x in str(val).split(";")]
-                return any(modelo_filtro in item for item in itens)
-            mask_modelo = df_col[col].apply(contem_modelo)
+            mask_modelo = df_col[col].str.upper().str.contains(modelo_filtro, na=False)
             if mask_modelo.any():
                 df_col = df_col[mask_modelo]
 
@@ -1194,13 +854,12 @@ def buscar_por_equipamento(df: "pd.DataFrame", mensagem: str, colunas_alvo: list
     for col, (df_resultado, truncado) in resultados_por_coluna.items():
         e_coluna_marca = col in COLUNAS_MARCAS_PN
         sufixo = f"  *(limitado aos primeiros {max_resultados})*" if truncado else ""
-        col_label = col.replace("_", " ").upper()
-        linhas_output.append(f"## 🔧 {col_label} — {len(df_resultado)} peça(s){sufixo}\n")
+        linhas_output.append(f"## 🔧 {col} — {len(df_resultado)} peça(s){sufixo}\n")
 
         for _, row in df_resultado.iterrows():
-            pn_gen = str(row.get('pn_gen', '') or '').strip()
-            pn_fp = str(row.get('pn_fleetpro', '') or '').strip()
-            descricao = str(row.get('description', '') or '').strip()
+            pn_gen = str(row.get('PN GEN', '') or '').strip()
+            pn_fp = str(row.get('PN FLEETPRO', '') or '').strip()
+            descricao = str(row.get('DESCRIPTION', '') or '').strip()
             val_col = str(row.get(col, '') or '').strip()
 
             partes_linha = [f"- **{descricao}**"]
@@ -1359,12 +1018,11 @@ def pagina_chat():
             fontes_rag = []
             resultado_matriz = ""
             if usar_fp_matriz:
-                csv_path   = os.path.join(BASE_DOCS_DIR, MATRIX_CSV)
                 excel_path = os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL)
-                if not os.path.exists(csv_path) and not os.path.exists(excel_path):
+                if not os.path.exists(excel_path):
                     st.error(
-                        f"Nenhum arquivo de matriz encontrado em base_docs/. "
-                        f"Coloque {MATRIX_CSV} (preferido) ou {MATRIX_EXCEL} lá e reinicie o app."
+                        f"{MATRIX_EXCEL} não encontrado em base_docs/. "
+                        "Coloque o arquivo lá e reinicie o app."
                     )
                     st.stop()
                 df_fp = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
@@ -1372,20 +1030,7 @@ def pagina_chat():
                 colunas_equip = detectar_busca_por_equipamento(input_usuario)
                 termo_marketing = detectar_busca_marketing(input_usuario)
 
-                tt_code = detectar_tt_code(input_usuario)
-                colunas_equip = detectar_busca_por_equipamento(input_usuario)
-                termo_marketing = detectar_busca_marketing(input_usuario)
-
-                if tt_code:
-                    # Busca por TT code
-                    resultado_matriz = buscar_por_tt_code(df_fp, tt_code, max_resultados)
-                elif colunas_equip and termo_marketing:
-                    # ── Busca combinada: equipamento + categoria ──────────────
-                    # Ex: "rolamento para trator case" → filtra CASE IH + ROLAMENTOS
-                    resultado_matriz = buscar_equip_e_marketing(
-                        df_fp, input_usuario, colunas_equip, termo_marketing, max_resultados
-                    )
-                elif colunas_equip:
+                if colunas_equip:
                     # Busca por fabricante / tipo de máquina
                     resultado_matriz = buscar_por_equipamento(df_fp, input_usuario, colunas_equip, max_resultados)
                 elif termo_marketing:
@@ -1422,7 +1067,7 @@ def pagina_chat():
                     )
                     # Adiciona matriz como fonte visível
                     fontes_rag.insert(0, {
-                        "label": "📊 Matriz FP — resultado encontrado",
+                        "label": "📊 Matriz FP (Excel) — resultado encontrado",
                         "path": "",
                         "tipo": "matriz"
                     })
