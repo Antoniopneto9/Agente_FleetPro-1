@@ -565,10 +565,12 @@ def _carregar_documentos_rag(pasta: str):
 @st.cache_resource(show_spinner="⏳ Indexando documentos... (pode levar alguns minutos na primeira vez)")
 def obter_vectorstore():
     """
-    Cria ou carrega o banco vetorial (Chroma) com documentos locais + site FleetPro.
-    O cache só recria o índice se os arquivos ou o cache do site mudaram.
+    Cria ou carrega o banco vetorial (Chroma) com documentos locais.
+    O cache só recria o índice se os arquivos mudaram.
     """
     os.makedirs(BASE_DOCS_DIR, exist_ok=True)
+    # Garante que o diretório do ChromaDB existe (crítico no Streamlit Cloud)
+    os.makedirs(CHROMA_DIR, exist_ok=True)
 
     try:
         from langchain_huggingface import HuggingFaceEmbeddings
@@ -581,7 +583,13 @@ def obter_vectorstore():
     base_hash = _hash_completo(arquivos_rag)
     hash_antigo = _ler_hash_salvo()
 
-    precisa_recriar = (hash_antigo != base_hash) or (not os.path.isdir(CHROMA_DIR))
+    # Verifica se o índice existe e está válido (sqlite pode sumir no /tmp)
+    sqlite_path = os.path.join(CHROMA_DIR, "chroma.sqlite3")
+    precisa_recriar = (
+        (hash_antigo != base_hash)
+        or (not os.path.isdir(CHROMA_DIR))
+        or (not os.path.exists(sqlite_path))
+    )
 
     if precisa_recriar:
         _apagar_indice()
