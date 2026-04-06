@@ -562,62 +562,31 @@ def _carregar_documentos_rag(pasta: str):
     return docs
 
 
-@st.cache_resource(show_spinner="⏳ Indexando documentos... (pode levar alguns minutos na primeira vez)")
+@st.cache_resource(show_spinner="Indexando documentos...")
 def obter_vectorstore():
-    """
-    Cria ou carrega o banco vetorial (Chroma) com documentos locais.
-    O cache só recria o índice se os arquivos mudaram.
-    """
     os.makedirs(BASE_DOCS_DIR, exist_ok=True)
-    # Garante que o diretório do ChromaDB existe (crítico no Streamlit Cloud)
-    os.makedirs(CHROMA_DIR, exist_ok=True)
-
     try:
         from langchain_huggingface import HuggingFaceEmbeddings
     except ImportError:
         from langchain_community.embeddings import HuggingFaceEmbeddings
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
+    docs = _carregar_documentos_rag(BASE_DOCS_DIR)
+    if not docs:
+        return None
+    chunks = _split_docs(docs)
+    if _IS_CLOUD:
+        return Chroma.from_documents(documents=chunks, embedding=embeddings, collection_name=COLLECTION_NAME)
+    os.makedirs(CHROMA_DIR, exist_ok=True)
     arquivos_rag = _listar_arquivos_rag(BASE_DOCS_DIR)
-
     base_hash = _hash_completo(arquivos_rag)
     hash_antigo = _ler_hash_salvo()
-
-    # Verifica se o índice existe e está válido (sqlite pode sumir no /tmp)
     sqlite_path = os.path.join(CHROMA_DIR, "chroma.sqlite3")
-    precisa_recriar = (
-        (hash_antigo != base_hash)
-        or (not os.path.isdir(CHROMA_DIR))
-        or (not os.path.exists(sqlite_path))
-    )
-
-    if precisa_recriar:
+    if (hash_antigo != base_hash) or (not os.path.exists(sqlite_path)):
         _apagar_indice()
-
-        # Documentos locais
-        docs = _carregar_documentos_rag(BASE_DOCS_DIR)
-
-        if not docs:
-            return None
-
-        chunks = _split_docs(docs)
-        vs = Chroma.from_documents(
-            documents=chunks,
-            embedding=embeddings,
-            collection_name=COLLECTION_NAME,
-            persist_directory=CHROMA_DIR,
-        )
+        vs = Chroma.from_documents(documents=chunks, embedding=embeddings, collection_name=COLLECTION_NAME, persist_directory=CHROMA_DIR)
         _salvar_hash(base_hash)
         return vs
-
-    # Carrega índice existente
-    vs = Chroma(
-        collection_name=COLLECTION_NAME,
-        embedding_function=embeddings,
-        persist_directory=CHROMA_DIR,
-    )
-    return vs
-
+    return Chroma(collection_name=COLLECTION_NAME, embedding_function=embeddings, persist_directory=CHROMA_DIR)
 
 # Mapa de siglas/termos → fragmentos de nome de arquivo para filtro
 _MAPA_SIGLAS_ARQUIVO = {
