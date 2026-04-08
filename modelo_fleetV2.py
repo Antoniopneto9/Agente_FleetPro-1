@@ -562,31 +562,49 @@ def _carregar_documentos_rag(pasta: str):
     return docs
 
 
-@st.cache_resource(show_spinner="Indexando documentos...")
-def obter_vectorstore():
+def _construir_vectorstore():
+    """Cria um vectorstore novo do zero. Retorna None se embeddings não disponíveis."""
     os.makedirs(BASE_DOCS_DIR, exist_ok=True)
     try:
         from langchain_huggingface import HuggingFaceEmbeddings
     except ImportError:
         from langchain_community.embeddings import HuggingFaceEmbeddings
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    try:
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        # Testa se o modelo está disponível localmente
+        embeddings.embed_query("teste")
+    except Exception:
+        st.session_state["_rag_indisponivel"] = True
+        return None
+
+    st.session_state["_rag_indisponivel"] = False
     docs = _carregar_documentos_rag(BASE_DOCS_DIR)
     if not docs:
         return None
     chunks = _split_docs(docs)
     if _IS_CLOUD:
-        return Chroma.from_documents(documents=chunks, embedding=embeddings, collection_name=COLLECTION_NAME)
+        os.makedirs(CHROMA_DIR, exist_ok=True)
+        return Chroma.from_documents(documents=chunks, embedding=embeddings, collection_name=COLLECTION_NAME, persist_directory=CHROMA_DIR)
+    if os.path.isdir(CHROMA_DIR):
+        shutil.rmtree(CHROMA_DIR, ignore_errors=True)
     os.makedirs(CHROMA_DIR, exist_ok=True)
-    arquivos_rag = _listar_arquivos_rag(BASE_DOCS_DIR)
-    base_hash = _hash_completo(arquivos_rag)
-    hash_antigo = _ler_hash_salvo()
-    sqlite_path = os.path.join(CHROMA_DIR, "chroma.sqlite3")
-    if (hash_antigo != base_hash) or (not os.path.exists(sqlite_path)):
-        _apagar_indice()
-        vs = Chroma.from_documents(documents=chunks, embedding=embeddings, collection_name=COLLECTION_NAME, persist_directory=CHROMA_DIR)
-        _salvar_hash(base_hash)
-        return vs
-    return Chroma(collection_name=COLLECTION_NAME, embedding_function=embeddings, persist_directory=CHROMA_DIR)
+    vs = Chroma.from_documents(documents=chunks, embedding=embeddings, collection_name=COLLECTION_NAME, persist_directory=CHROMA_DIR)
+    _salvar_hash(_hash_completo(_listar_arquivos_rag(BASE_DOCS_DIR)))
+    return vs
+
+
+def obter_vectorstore():
+    """Retorna o vectorstore do session_state, construindo se necessário."""
+    if st.session_state.get("_vectorstore") is None:
+        vs = _construir_vectorstore()
+        st.session_state["_vectorstore"] = vs
+    return st.session_state["_vectorstore"]
+
+
+def resetar_vectorstore():
+    """Descarta o vectorstore em cache para forçar reconstrução na próxima chamada."""
+    st.session_state["_vectorstore"] = None
+    st.session_state["_rag_indisponivel"] = False
 
 # Mapa de siglas/termos → fragmentos de nome de arquivo para filtro
 _MAPA_SIGLAS_ARQUIVO = {
@@ -1272,7 +1290,7 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
     st.session_state["api_key_openai_rag"] = api_key if provedor == "OpenAI" else st.session_state.get("api_key_openai_rag", "")
     st.session_state.setdefault("memoria", ConversationBufferMemory())
 
-    obter_vectorstore.clear()
+    resetar_vectorstore()
 
     st.success(f"Agente FleetPro inicializado: {provedor} / {modelo}")
 
@@ -1374,12 +1392,12 @@ def pagina_chat():
             # ── 2. Busca RAG (documentos locais + site FleetPro) ──────────────
             contexto_rag = ""
             fontes_rag = []
-            if usar_rag and chat_model is not None:
+            if usar_rag and chat_model is not None and not st.session_state.get("_rag_indisponivel"):
                 try:
                     vs = obter_vectorstore()
                     contexto_rag, fontes_rag = buscar_no_rag(vs, input_usuario)
-                except Exception as e:
-                    contexto_rag = f"(Erro ao acessar RAG: {e})"
+                except Exception:
+                    contexto_rag = ""
                     fontes_rag = []
 
             # ── 3. Montar resposta ────────────────────────────────────────────
@@ -1609,14 +1627,16 @@ def sidebar():
         )
         st.session_state["usar_rag"] = usar_rag
 
-        st.caption("✅ Embeddings gratuitos (HuggingFace) — sem necessidade de API key.")
+        if st.session_state.get("_rag_indisponivel"):
+            st.warning("⚠️ RAG indisponível — modelo de embeddings não pôde ser carregado (sem acesso à internet ou rede bloqueada). O app está rodando **sem RAG**, usando apenas a Matriz FP.")
+        else:
+            st.caption("✅ Embeddings gratuitos (HuggingFace) — sem necessidade de API key.")
 
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Reindexar", use_container_width=True):
-                obter_vectorstore.clear()
-                _apagar_indice()
                 try:
+                    resetar_vectorstore()
                     vs = obter_vectorstore()
                     if vs:
                         st.success("Indexado com sucesso!")
@@ -1640,12 +1660,67 @@ def sidebar():
 
 
 # ======================
+# UI – Reportar Erro
+# ======================
+def popup_feedback():
+    """Captura descrição do erro + histórico do chat principal e salva no projeto."""
+    import datetime, csv
+
+    with st.sidebar:
+        st.divider()
+        with st.expander("🐛 Reportar Erro", expanded=False):
+            valor_inicial = "" if st.session_state.get("_feedback_limpar") else st.session_state.get("feedback_descricao", "")
+            descricao = st.text_area(
+                "O que aconteceu?",
+                value=valor_inicial,
+                placeholder="Ex: Perguntei sobre o PN X e o modelo retornou Y errado.",
+                height=100,
+            )
+
+            if st.session_state.get("_feedback_limpar"):
+                st.session_state["_feedback_limpar"] = False
+
+            if st.button("📤 Enviar Erro", use_container_width=True, key="btn_enviar_feedback", type="primary"):
+                if not descricao.strip():
+                    st.warning("Descreva o erro antes de enviar.")
+                else:
+                    memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
+                    historico_str = "\n".join(
+                        f"{m.type.upper()}: {m.content}" for m in memoria.buffer_as_messages
+                    )
+
+                    registro = {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "descricao": descricao.strip(),
+                        "modelo": st.session_state.get("modelo", "N/A"),
+                        "provedor": st.session_state.get("provedor", "N/A"),
+                        "historico_chat": historico_str,
+                    }
+
+                    feedback_file = os.path.join(APP_DIR, "erros_reportados.csv")
+                    campos = list(registro.keys())
+                    file_exists = os.path.exists(feedback_file)
+                    try:
+                        with open(feedback_file, "a", newline="", encoding="utf-8") as f:
+                            writer = csv.DictWriter(f, fieldnames=campos)
+                            if not file_exists:
+                                writer.writeheader()
+                            writer.writerow(registro)
+                        st.success("✅ Erro reportado! Obrigado.")
+                        st.session_state["_feedback_limpar"] = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
+
+
+# ======================
 # Main
 # ======================
 def main():
     pagina_chat()
     with st.sidebar:
         sidebar()
+        popup_feedback()
 
 
 if __name__ == "__main__":
