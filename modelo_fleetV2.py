@@ -1300,8 +1300,13 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
     st.session_state.setdefault("memoria", ConversationBufferMemory())
 
     resetar_vectorstore()
+    with st.spinner("Indexando documentos..."):
+        vs = obter_vectorstore()
 
-    st.success(f"Agente FleetPro inicializado: {provedor} / {modelo}")
+    if vs:
+        st.success(f"✅ Agente inicializado: {provedor} / {modelo} — documentos indexados.")
+    else:
+        st.warning(f"✅ Agente inicializado: {provedor} / {modelo} — RAG indisponível (sem documentos ou rede bloqueada).")
 
 
 # ======================
