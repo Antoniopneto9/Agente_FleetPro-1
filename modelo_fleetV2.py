@@ -1696,14 +1696,18 @@ def _salvar_erro_github(registro: dict):
     # Monta nova linha CSV
     import csv, io
     campos = list(registro.keys())
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=campos)
     if not conteudo_atual.strip():
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=campos)
         writer.writeheader()
+        writer.writerow(registro)
+        novo_conteudo = buf.getvalue()
     else:
-        buf.write(conteudo_atual if conteudo_atual.endswith("\n") else conteudo_atual + "\n")
-    writer.writerow(registro)
-    novo_conteudo = buf.getvalue()
+        linhas = conteudo_atual.rstrip("\n") + "\n"
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=campos)
+        writer.writerow(registro)
+        novo_conteudo = linhas + buf.getvalue()
 
     # Commita
     payload = {
