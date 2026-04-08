@@ -1660,6 +1660,66 @@ def sidebar():
 
 
 # ======================
+# Salvar erro no GitHub
+# ======================
+def _salvar_erro_github(registro: dict):
+    """Commita erros_reportados.csv no repositório GitHub via API."""
+    import base64, json, urllib.request, urllib.error
+
+    token = st.secrets.get("GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", ""))
+    if not token:
+        raise RuntimeError("GITHUB_TOKEN não configurado nos secrets do Streamlit.")
+
+    owner = "Antoniopneto9"
+    repo  = "Agente_FleetPro-1"
+    path  = "erros_reportados.csv"
+    api   = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+    }
+
+    # Busca conteúdo atual do arquivo (se existir)
+    sha = None
+    conteudo_atual = ""
+    req = urllib.request.Request(api, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read())
+            sha = data["sha"]
+            conteudo_atual = base64.b64decode(data["content"]).decode("utf-8")
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+
+    # Monta nova linha CSV
+    import csv, io
+    campos = list(registro.keys())
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=campos)
+    if not conteudo_atual.strip():
+        writer.writeheader()
+    else:
+        buf.write(conteudo_atual if conteudo_atual.endswith("\n") else conteudo_atual + "\n")
+    writer.writerow(registro)
+    novo_conteudo = buf.getvalue()
+
+    # Commita
+    payload = {
+        "message": f"erro reportado: {registro['timestamp'][:10]}",
+        "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
+        "branch": "main",
+    }
+    if sha:
+        payload["sha"] = sha
+
+    req_put = urllib.request.Request(api, data=json.dumps(payload).encode(), headers=headers, method="PUT")
+    with urllib.request.urlopen(req_put) as resp:
+        resp.read()
+
+
+# ======================
 # UI – Reportar Erro
 # ======================
 def popup_feedback():
@@ -1697,15 +1757,8 @@ def popup_feedback():
                         "historico_chat": historico_str,
                     }
 
-                    feedback_file = os.path.join(APP_DIR, "erros_reportados.csv")
-                    campos = list(registro.keys())
-                    file_exists = os.path.exists(feedback_file)
                     try:
-                        with open(feedback_file, "a", newline="", encoding="utf-8") as f:
-                            writer = csv.DictWriter(f, fieldnames=campos)
-                            if not file_exists:
-                                writer.writeheader()
-                            writer.writerow(registro)
+                        _salvar_erro_github(registro)
                         st.success("✅ Erro reportado! Obrigado.")
                         st.session_state["_feedback_limpar"] = True
                         st.rerun()
