@@ -1690,11 +1690,14 @@ def _salvar_erro_github(registro: dict):
     }
 
     def _fetch():
-        req = urllib.request.Request(api, headers=gh_headers)
+        req = urllib.request.Request(api + "?ref=main", headers=gh_headers)
         try:
             with urllib.request.urlopen(req) as resp:
                 data = json.loads(resp.read())
-                return data["sha"], base64.b64decode(data["content"]).decode("utf-8")
+                sha = data["sha"]
+                # content pode ter quebras de linha — remover antes de decodificar
+                content_b64 = data["content"].replace("\n", "")
+                return sha, base64.b64decode(content_b64).decode("utf-8")
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None, ""
