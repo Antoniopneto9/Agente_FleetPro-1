@@ -1531,8 +1531,17 @@ def pagina_chat():
                     resposta = resposta_stream
 
             else:
-                st.markdown(resultado_matriz)
-                resposta = resultado_matriz
+                if resultado_matriz:
+                    st.markdown(resultado_matriz)
+                    resposta = resultado_matriz
+                else:
+                    resposta = (
+                        "⚙️ Nenhum modelo de linguagem inicializado.\n\n"
+                        "Para perguntas e recomendações, configure o LLM na sidebar "
+                        "(**Modelo de Linguagem**) e clique em **Inicializar Agente**.\n\n"
+                        "Para buscar um PN diretamente, basta digitar o número da peça."
+                    )
+                    st.markdown(resposta)
 
         except Exception as e:
             st.error("Erro ao responder.")
