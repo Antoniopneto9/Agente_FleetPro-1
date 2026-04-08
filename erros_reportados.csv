@@ -1,3 +1,19 @@
 timestamp,descricao,modelo,provedor,historico_chat
 2026-04-08T17:49:23.988051,o agente nao responde nada,N/A,N/A,"HUMAN: ola
 AI: "
+2026-04-08T18:35:35.612623,"a sidebar, continua se escondendo, e o agente continua sem conseguir identificar a quantidade de itens no portifólio sendo que a planilha tem a quantidade de linhas com isso.",llama-3.3-70b-versatile,Groq,"HUMAN: ola
+AI: Antes de responder, preciso entender melhor como posso te ajudar! 😊
+
+**Você é:**
+- **1️⃣ Vendedor** — quero argumentos para atender meu cliente no balcão
+- **2️⃣ Usuário da peça** — quero saber se o FleetPro é a melhor opção para minha máquina
+
+_Digite o número ou o nome da opção._
+HUMAN: 1
+AI: ✅ Perfeito! Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta!
+HUMAN: quantos itens temos no portifólio fleetpro?
+AI: Infelizmente, não encontrei informações específicas sobre o número total de itens no portfólio FleetPro. No entanto, posso destacar que o FleetPro oferece uma variedade de produtos, incluindo correias, lubrificantes, lâminas de corte e outros, fabricados por fornecedores homologados como VV, TEEJET, IPESA, REXNORD e PETRONAS, todos vendidos com a marca FleetPro.
+
+Se o cliente estiver procurando por um item específico, posso ajudar a identificar o PN correto do FleetPro. Além disso, é importante lembrar que o FleetPro oferece produtos de alta qualidade, com especificações e características que atendem às necessidades do mercado, e muitas vezes com uma redução de custo em comparação com as peças originais.
+
+Você gostaria de saber mais sobre algum produto específico do FleetPro ou como podemos ajudar o cliente com sua demanda atual?"
