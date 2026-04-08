@@ -1776,9 +1776,8 @@ def popup_feedback():
 
                     try:
                         _salvar_erro_github(registro)
-                        st.success("✅ Erro reportado! Obrigado.")
                         st.session_state["_feedback_limpar"] = True
-                        st.rerun()
+                        st.success("✅ Erro reportado! Obrigado.")
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
