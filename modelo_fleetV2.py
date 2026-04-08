@@ -1004,6 +1004,15 @@ def buscar_por_tt_code(df: "pd.DataFrame", tt_code: str, max_resultados: int = 5
     return "\n".join(partes)
 
 
+def _detectar_pergunta_contagem(mensagem: str) -> bool:
+    palavras = ["quantos", "quantidade", "total de itens", "total de produtos",
+                "portfólio", "portfolio", "quantas peças", "quantas pecas",
+                "tamanho do portfólio", "itens no portfólio", "itens temos",
+                "peças temos", "pecas temos", "produtos temos"]
+    msg = mensagem.lower()
+    return any(p in msg for p in palavras)
+
+
 def detectar_tt_code(mensagem: str) -> str:
     """
     Detecta TT code na mensagem — sequência numérica de 4+ dígitos
@@ -1364,14 +1373,17 @@ def pagina_chat():
                     st.stop()
                 df_fp = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
 
-                colunas_equip = detectar_busca_por_equipamento(input_usuario)
-                termo_marketing = detectar_busca_marketing(input_usuario)
+                # Pergunta de contagem — responde diretamente com len(df)
+                if _detectar_pergunta_contagem(input_usuario):
+                    resultado_matriz = f"O portfólio FleetPro possui **{len(df_fp)} itens** cadastrados na Matriz FP."
 
                 tt_code = detectar_tt_code(input_usuario)
                 colunas_equip = detectar_busca_por_equipamento(input_usuario)
                 termo_marketing = detectar_busca_marketing(input_usuario)
 
-                if tt_code:
+                if _detectar_pergunta_contagem(input_usuario):
+                    pass  # já tratado acima
+                elif tt_code:
                     # Busca por TT code
                     resultado_matriz = buscar_por_tt_code(df_fp, tt_code, max_resultados)
                 elif colunas_equip and termo_marketing:
