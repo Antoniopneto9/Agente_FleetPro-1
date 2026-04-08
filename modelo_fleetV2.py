@@ -7,7 +7,7 @@ from typing import Optional
 
 import streamlit as st
 
-st.set_page_config(page_title="FleetPro Expert", layout="wide")
+st.set_page_config(page_title="FleetPro Expert", layout="wide", initial_sidebar_state="expanded")
 
 
 def safe_run(fn):
