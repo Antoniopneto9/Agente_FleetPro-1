@@ -1320,6 +1320,31 @@ def pagina_chat():
     for mensagem in memoria.buffer_as_messages:
         st.chat_message(mensagem.type).markdown(mensagem.content)
 
+    # ── Botões de perfil (exibe apenas enquanto perfil não definido) ──────
+    if st.session_state.get("perfil_usuario") is None:
+        st.caption("Quem é você?")
+        col_v, col_c, _ = st.columns([1, 1, 4])
+        with col_v:
+            if st.button("🧑‍💼 Vendedor", use_container_width=True, key="btn_perfil_vendedor"):
+                st.session_state["perfil_usuario"] = "vendedor"
+                resposta = "✅ Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta!"
+                st.chat_message("human").markdown("Vendedor")
+                st.chat_message("ai").markdown(resposta)
+                memoria.chat_memory.add_user_message("Vendedor")
+                memoria.chat_memory.add_ai_message(resposta)
+                st.session_state["memoria"] = memoria
+                st.rerun()
+        with col_c:
+            if st.button("🌾 Cliente", use_container_width=True, key="btn_perfil_cliente"):
+                st.session_state["perfil_usuario"] = "usuario"
+                resposta = "✅ Modo **Cliente / Usuário da Peça** ativado. Pode fazer sua pergunta!"
+                st.chat_message("human").markdown("Cliente")
+                st.chat_message("ai").markdown(resposta)
+                memoria.chat_memory.add_user_message("Cliente")
+                memoria.chat_memory.add_ai_message(resposta)
+                st.session_state["memoria"] = memoria
+                st.rerun()
+
     input_usuario = st.chat_input(
         "Digite um PN para busca, ou uma pergunta sobre produtos, objeções e recomendações..."
     )
@@ -1327,7 +1352,7 @@ def pagina_chat():
     if not input_usuario:
         return
 
-    # ── Captura escolha de perfil (ANTES de qualquer busca ou LLM) ───────
+    # ── Captura escolha de perfil via texto (fallback) ────────────────────
     if st.session_state.get("perfil_usuario") is None:
         resposta_lower = input_usuario.lower().strip()
         if any(p in resposta_lower for p in ["1", "vendedor", "vendo", "balcão", "balcao", "revend"]):
@@ -1340,11 +1365,11 @@ def pagina_chat():
             memoria.chat_memory.add_ai_message(resposta)
             st.session_state["memoria"] = memoria
             st.stop()
-        elif any(p in resposta_lower for p in ["2", "usuario", "usuário", "uso", "minha máquina", "minha maquina", "agricultor", "operador"]):
+        elif any(p in resposta_lower for p in ["2", "usuario", "usuário", "uso", "minha máquina", "minha maquina", "agricultor", "operador", "cliente"]):
             st.session_state["perfil_usuario"] = "usuario"
             st.chat_message("human").markdown(input_usuario)
             with st.chat_message("ai"):
-                resposta = "✅ Perfeito! Modo **Usuário da Peça** ativado. Pode fazer sua pergunta!"
+                resposta = "✅ Perfeito! Modo **Cliente / Usuário da Peça** ativado. Pode fazer sua pergunta!"
                 st.markdown(resposta)
             memoria.chat_memory.add_user_message(input_usuario)
             memoria.chat_memory.add_ai_message(resposta)
@@ -1418,6 +1443,15 @@ def pagina_chat():
                 resposta = resultado_matriz
 
             elif chat_model is not None:
+                # Bloqueia LLM se não há nenhum dado — evita alucinação
+                if not resultado_matriz and not contexto_rag:
+                    resposta = "Não encontrei informações sobre isso na base FleetPro. Tente buscar por PN, categoria de produto ou equipamento."
+                    st.markdown(resposta)
+                    memoria.chat_memory.add_user_message(input_usuario)
+                    memoria.chat_memory.add_ai_message(resposta)
+                    st.session_state["memoria"] = memoria
+                    st.stop()
+
                 blocos = []
 
                 if resultado_matriz:
@@ -1483,9 +1517,10 @@ def pagina_chat():
                             f"- Se houver objeção de preço ou qualidade, sugira como rebater\n\n"
                             f"O vendedor perguntou: **{input_usuario}**\n\n"
                             f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n\n"
-                            f"INSTRUÇÕES IMPORTANTES:\n"
-                            f"- Use APENAS as informações abaixo para responder. NÃO invente dados.\n"
-                            f"- Se a informação não estiver nas fontes abaixo, diga que não encontrou.\n"
+                            f"INSTRUÇÕES CRÍTICAS — SIGA RIGOROSAMENTE:\n"
+                            f"- Use APENAS as informações das fontes abaixo para responder.\n"
+                            f"- Se a informação não estiver nas fontes, responda EXATAMENTE: 'Não encontrei essa informação na base FleetPro.'\n"
+                            f"- NÃO elabore, NÃO sugira, NÃO complete com conhecimento próprio quando os dados estiverem ausentes.\n"
                             f"- Sempre apresente os produtos como FleetPro, mesmo que a fonte mencione o fornecedor.\n\n"
                             f"Informações das fontes:\n\n"
                             f"{contexto_completo}"
@@ -1509,9 +1544,10 @@ def pagina_chat():
                             f"- Finalize sempre incentivando a buscar o FleetPro no revendedor mais próximo\n\n"
                             f"O usuário perguntou: **{input_usuario}**\n\n"
                             f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n\n"
-                            f"INSTRUÇÕES IMPORTANTES:\n"
-                            f"- Use APENAS as informações abaixo para responder. NÃO invente dados.\n"
-                            f"- Se a informação não estiver nas fontes abaixo, diga que não encontrou.\n"
+                            f"INSTRUÇÕES CRÍTICAS — SIGA RIGOROSAMENTE:\n"
+                            f"- Use APENAS as informações das fontes abaixo para responder.\n"
+                            f"- Se a informação não estiver nas fontes, responda EXATAMENTE: 'Não encontrei essa informação na base FleetPro.'\n"
+                            f"- NÃO elabore, NÃO sugira, NÃO complete com conhecimento próprio quando os dados estiverem ausentes.\n"
                             f"- Sempre apresente os produtos como FleetPro, mesmo que a fonte mencione o fornecedor.\n\n"
                             f"Informações das fontes:\n\n"
                             f"{contexto_completo}"
