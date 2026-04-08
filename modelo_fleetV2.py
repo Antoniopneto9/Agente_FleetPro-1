@@ -1726,16 +1726,17 @@ def _salvar_erro_github(registro: dict):
         with urllib.request.urlopen(req) as resp:
             resp.read()
 
-    # Tenta uma vez; se 422 (SHA desatualizado), busca SHA novo e tenta de novo
-    sha, conteudo_atual = _fetch()
-    try:
-        _put(sha, _montar_conteudo(conteudo_atual))
-    except urllib.error.HTTPError as e:
-        if e.code == 422:
-            sha, conteudo_atual = _fetch()
+    # Tenta até 3 vezes buscando SHA atualizado a cada tentativa
+    for tentativa in range(3):
+        sha, conteudo_atual = _fetch()
+        try:
             _put(sha, _montar_conteudo(conteudo_atual))
-        else:
-            raise RuntimeError(f"GitHub API error {e.code}: {e.read().decode('utf-8', errors='replace')}")
+            return
+        except urllib.error.HTTPError as e:
+            corpo = e.read().decode("utf-8", errors="replace")
+            if e.code == 422 and tentativa < 2:
+                continue
+            raise RuntimeError(f"GitHub API error {e.code}: {corpo}")
 
 
 # ======================
