@@ -1735,7 +1735,7 @@ def _salvar_erro_github(registro: dict):
             sha, conteudo_atual = _fetch()
             _put(sha, _montar_conteudo(conteudo_atual))
         else:
-            raise
+            raise RuntimeError(f"GitHub API error {e.code}: {e.read().decode('utf-8', errors='replace')}")
 
 
 # ======================
