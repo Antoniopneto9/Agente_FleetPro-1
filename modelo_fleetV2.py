@@ -1673,7 +1673,7 @@ def sidebar():
 # ======================
 def _salvar_erro_github(registro: dict):
     """Commita erros_reportados.csv no repositório GitHub via API."""
-    import base64, json, urllib.request, urllib.error
+    import base64, json, csv, io, urllib.request, urllib.error
 
     token = st.secrets.get("GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", ""))
     if not token:
@@ -1683,53 +1683,59 @@ def _salvar_erro_github(registro: dict):
     repo  = "Agente_FleetPro-1"
     path  = "erros_reportados.csv"
     api   = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    headers = {
+    gh_headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github+json",
         "Content-Type": "application/json",
     }
 
-    # Busca conteúdo atual do arquivo (se existir)
-    sha = None
-    conteudo_atual = ""
-    req = urllib.request.Request(api, headers=headers)
-    try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read())
-            sha = data["sha"]
-            conteudo_atual = base64.b64decode(data["content"]).decode("utf-8")
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
+    def _fetch():
+        req = urllib.request.Request(api, headers=gh_headers)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+                return data["sha"], base64.b64decode(data["content"]).decode("utf-8")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None, ""
             raise
 
-    # Monta nova linha CSV
-    import csv, io
-    campos = list(registro.keys())
-    if not conteudo_atual.strip():
-        buf = io.StringIO()
-        writer = csv.DictWriter(buf, fieldnames=campos)
-        writer.writeheader()
-        writer.writerow(registro)
-        novo_conteudo = buf.getvalue()
-    else:
-        linhas = conteudo_atual.rstrip("\n") + "\n"
-        buf = io.StringIO()
-        writer = csv.DictWriter(buf, fieldnames=campos)
-        writer.writerow(registro)
-        novo_conteudo = linhas + buf.getvalue()
+    def _montar_conteudo(conteudo_atual):
+        campos = list(registro.keys())
+        if not conteudo_atual.strip():
+            buf = io.StringIO()
+            writer = csv.DictWriter(buf, fieldnames=campos)
+            writer.writeheader()
+            writer.writerow(registro)
+        else:
+            buf = io.StringIO()
+            buf.write(conteudo_atual.rstrip("\n") + "\n")
+            writer = csv.DictWriter(buf, fieldnames=campos)
+            writer.writerow(registro)
+        return buf.getvalue()
 
-    # Commita
-    payload = {
-        "message": f"erro reportado: {registro['timestamp'][:10]}",
-        "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
-        "branch": "main",
-    }
-    if sha:
-        payload["sha"] = sha
+    def _put(sha, novo_conteudo):
+        payload = {
+            "message": f"erro reportado: {registro['timestamp'][:10]}",
+            "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
+            "branch": "main",
+        }
+        if sha:
+            payload["sha"] = sha
+        req = urllib.request.Request(api, data=json.dumps(payload).encode(), headers=gh_headers, method="PUT")
+        with urllib.request.urlopen(req) as resp:
+            resp.read()
 
-    req_put = urllib.request.Request(api, data=json.dumps(payload).encode(), headers=headers, method="PUT")
-    with urllib.request.urlopen(req_put) as resp:
-        resp.read()
+    # Tenta uma vez; se 422 (SHA desatualizado), busca SHA novo e tenta de novo
+    sha, conteudo_atual = _fetch()
+    try:
+        _put(sha, _montar_conteudo(conteudo_atual))
+    except urllib.error.HTTPError as e:
+        if e.code == 422:
+            sha, conteudo_atual = _fetch()
+            _put(sha, _montar_conteudo(conteudo_atual))
+        else:
+            raise
 
 
 # ======================
