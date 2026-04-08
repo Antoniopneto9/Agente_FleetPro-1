@@ -1746,20 +1746,18 @@ def popup_feedback():
     with st.sidebar:
         st.divider()
         with st.expander("🐛 Reportar Erro", expanded=False):
-            valor_inicial = "" if st.session_state.get("_feedback_limpar") else st.session_state.get("feedback_descricao", "")
             descricao = st.text_area(
                 "O que aconteceu?",
-                value=valor_inicial,
                 placeholder="Ex: Perguntei sobre o PN X e o modelo retornou Y errado.",
                 height=100,
+                key="feedback_descricao",
             )
-
-            if st.session_state.get("_feedback_limpar"):
-                st.session_state["_feedback_limpar"] = False
 
             if st.button("📤 Enviar Erro", use_container_width=True, key="btn_enviar_feedback", type="primary"):
                 if not descricao.strip():
                     st.warning("Descreva o erro antes de enviar.")
+                elif st.session_state.get("_feedback_enviado") == descricao.strip():
+                    st.success("✅ Erro reportado! Obrigado.")
                 else:
                     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
                     historico_str = "\n".join(
@@ -1776,7 +1774,7 @@ def popup_feedback():
 
                     try:
                         _salvar_erro_github(registro)
-                        st.session_state["_feedback_limpar"] = True
+                        st.session_state["_feedback_enviado"] = descricao.strip()
                         st.success("✅ Erro reportado! Obrigado.")
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
