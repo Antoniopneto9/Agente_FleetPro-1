@@ -9,6 +9,14 @@ import streamlit as st
 
 st.set_page_config(page_title="FleetPro Expert", layout="wide", initial_sidebar_state="expanded")
 
+try:
+    import extra_streamlit_components as stx
+    _cookie_manager = stx.CookieManager(key="fleetpro_cookies")
+    _COOKIES_OK = True
+except Exception:
+    _cookie_manager = None
+    _COOKIES_OK = False
+
 
 def safe_run(fn):
     try:
@@ -1008,7 +1016,13 @@ def _detectar_pergunta_contagem(mensagem: str) -> bool:
     palavras = ["quantos", "quantidade", "total de itens", "total de produtos",
                 "portfólio", "portfolio", "quantas peças", "quantas pecas",
                 "tamanho do portfólio", "itens no portfólio", "itens temos",
-                "peças temos", "pecas temos", "produtos temos"]
+                "peças temos", "pecas temos", "produtos temos",
+                "tem no portfólio", "tem no portfolio", "quantos itens tem",
+                "quantos produtos tem", "itens fleetpro", "produtos fleetpro tem",
+                "itens cadastrados", "produtos cadastrados", "peças fleetpro tem",
+                "pecas fleetpro tem", "quantos produtos", "quantas pecas tem",
+                "quantas peças tem", "quantos itens", "total de peças",
+                "total de pecas", "numero de itens", "número de itens"]
     msg = mensagem.lower()
     return any(p in msg for p in palavras)
 
@@ -1189,8 +1203,12 @@ def buscar_por_equipamento(df: "pd.DataFrame", mensagem: str, colunas_alvo: list
         resultados_por_coluna[col] = (df_col, truncado)
 
     if not resultados_por_coluna:
-        marcas = ", ".join(colunas_alvo)
-        return f"Não encontrei peças para as colunas: {marcas}."
+        return (
+            "Não encontrei peças para esse equipamento/modelo na Matriz FP. "
+            "Tente especificar o equipamento completo, por exemplo: "
+            "'COMBINE - CASE IH 2188', 'TRACTOR - CASE IH PUMA 150', "
+            "'COMBINE - NEW HOLLAND'. Você também pode buscar por PN ou categoria de produto."
+        )
 
     linhas_output = []
     total_itens = 0
@@ -1227,6 +1245,60 @@ def buscar_por_equipamento(df: "pd.DataFrame", mensagem: str, colunas_alvo: list
         header = f"Encontrei **{total_itens}** peça(s) compatível(is) (filtro de modelo: `{modelo_filtro}`):\n"
 
     return header + "\n".join(linhas_output)
+
+
+def buscar_por_description(df: "pd.DataFrame", mensagem: str, max_resultados: int = 30) -> str:
+    """
+    Busca fallback por texto livre na coluna DESCRIPTION.
+    Retorna string formatada ou vazia se não encontrar nada relevante.
+    """
+    import unicodedata
+
+    def norm(s: str) -> str:
+        return unicodedata.normalize("NFD", s.upper()).encode("ascii", "ignore").decode("ascii")
+
+    stopwords = {
+        "QUAIS", "QUAL", "PN", "PNS", "PARA", "NO", "NA", "OS", "AS", "DE",
+        "DO", "DA", "UM", "UMA", "QUE", "SAO", "ME", "MOSTRE", "MOSTRA",
+        "LISTA", "LISTAR", "VER", "TENHO", "PRECISO", "QUERO", "TEM", "FLEETPRO",
+        "DISPONIVEIS", "DISPONIVEL", "VOCES", "TEMOS", "HAI", "EXISTE", "EXISTEM",
+        "BUSCA", "BUSCAR", "ENCONTRA", "ACHAR", "THE", "AND", "FOR", "WITH",
+        "HAVE", "SHOW", "FIND", "GET", "ALL", "CASO", "ESSE", "ESSA", "ISSO",
+    }
+
+    tokens = [t for t in re.findall(r"[A-Za-z0-9]+", mensagem.upper())
+              if norm(t) not in stopwords and len(t) >= 3]
+
+    if not tokens or "description" not in df.columns:
+        return ""
+
+    # Filtra linhas onde DESCRIPTION contém algum dos tokens
+    desc_upper = df["description"].fillna("").astype(str).apply(norm)
+    mask = pd.Series([False] * len(df), index=df.index)
+    for token in tokens:
+        mask = mask | desc_upper.str.contains(norm(token), na=False)
+
+    df_match = df[mask].head(max_resultados)
+    if df_match.empty:
+        return ""
+
+    linhas = [f"Encontrei **{len(df_match)}** item(ns) com descrição relacionada:\n"]
+    for _, row in df_match.iterrows():
+        descricao = str(row.get("description", "") or "").strip()
+        pn_fp = str(row.get("pn_fleetpro", "") or "").strip()
+        pn_gen = str(row.get("pn_gen", "") or "").strip()
+        mkt = str(row.get("marketing_project", "") or "").strip()
+
+        partes = [f"- **{descricao}**"]
+        if pn_fp and pn_fp not in ("-", ""):
+            partes.append(f"  PN FleetPro: `{pn_fp}`")
+        if pn_gen and pn_gen not in ("-", ""):
+            partes.append(f"  PN GEN: `{pn_gen}`")
+        if mkt and mkt not in ("-", ""):
+            partes.append(f"  Categoria: {mkt}")
+        linhas.append("\n".join(partes))
+
+    return "\n".join(linhas)
 
 
 def _buscar_pn_no_df(df: "pd.DataFrame", pn_norm: str, max_resultados: int) -> "pd.DataFrame":
@@ -1298,6 +1370,13 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
     st.session_state["modelo"] = modelo
     st.session_state["api_key_openai_rag"] = api_key if provedor == "OpenAI" else st.session_state.get("api_key_openai_rag", "")
     st.session_state.setdefault("memoria", ConversationBufferMemory())
+
+    if "session_id" not in st.session_state:
+        import uuid, datetime as _dt
+        st.session_state["session_id"] = str(uuid.uuid4())[:8]
+        st.session_state["session_inicio"] = _dt.datetime.now().isoformat()
+        st.session_state["tokens_sessao"] = 0
+        st.session_state["n_mensagens_sessao"] = 0
 
     resetar_vectorstore()
     with st.spinner("Indexando documentos..."):
@@ -1431,6 +1510,13 @@ def pagina_chat():
                 else:
                     resultado_matriz = procurar_pn(df_fp, input_usuario, max_resultados)
 
+                # ── Fallback: busca por texto livre na coluna DESCRIPTION ──────
+                # Ativado quando nenhuma busca retornou resultado útil
+                if not resultado_matriz or resultado_matriz.startswith("Não encontrei") or resultado_matriz.startswith("PN não encontrado"):
+                    resultado_descricao = buscar_por_description(df_fp, input_usuario, max_resultados)
+                    if resultado_descricao:
+                        resultado_matriz = resultado_descricao
+
             # ── 2. Busca RAG (documentos locais + site FleetPro) ──────────────
             contexto_rag = ""
             fontes_rag = []
@@ -1530,8 +1616,34 @@ def pagina_chat():
                             f"Informações das fontes:\n\n"
                             f"{contexto_completo}"
                         )
-                        resposta_stream = st.write_stream(chat_model.stream(prompt))
-                        resposta = resposta_stream
+                        import time as _time
+                        _t0 = _time.time()
+                        _response = chat_model.invoke(prompt)
+                        _tempo_resposta = round(_time.time() - _t0, 2)
+                        resposta = _response.content
+                        st.markdown(resposta)
+                        _uso = getattr(_response, "usage_metadata", {}) or {}
+                        _input_tok  = _uso.get("input_tokens", 0)
+                        _output_tok = _uso.get("output_tokens", 0)
+                        _total_tok  = _uso.get("total_tokens", _input_tok + _output_tok)
+                        st.session_state["tokens_sessao"] = st.session_state.get("tokens_sessao", 0) + _total_tok
+                        st.session_state["n_mensagens_sessao"] = st.session_state.get("n_mensagens_sessao", 0) + 1
+                        _registro_tok = {
+                            "session_id": st.session_state.get("session_id", ""),
+                            "timestamp_inicio_sessao": st.session_state.get("session_inicio", ""),
+                            "timestamp_resposta": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "modelo": st.session_state.get("modelo", ""),
+                            "provedor": st.session_state.get("provedor", ""),
+                            "perfil_usuario": st.session_state.get("perfil_usuario", ""),
+                            "input_tokens": _input_tok,
+                            "output_tokens": _output_tok,
+                            "total_tokens": _total_tok,
+                            "tempo_resposta_seg": _tempo_resposta,
+                            "tokens_acumulados_sessao": st.session_state.get("tokens_sessao", 0),
+                            "n_mensagens_sessao": st.session_state.get("n_mensagens_sessao", 0),
+                        }
+                        import threading as _threading
+                        _threading.Thread(target=_salvar_log_tokens, args=(_registro_tok,), daemon=True).start()
 
                     elif perfil == "usuario":
                         prompt = (
@@ -1557,8 +1669,34 @@ def pagina_chat():
                             f"Informações das fontes:\n\n"
                             f"{contexto_completo}"
                         )
-                        resposta_stream = st.write_stream(chat_model.stream(prompt))
-                        resposta = resposta_stream
+                        import time as _time
+                        _t0 = _time.time()
+                        _response = chat_model.invoke(prompt)
+                        _tempo_resposta = round(_time.time() - _t0, 2)
+                        resposta = _response.content
+                        st.markdown(resposta)
+                        _uso = getattr(_response, "usage_metadata", {}) or {}
+                        _input_tok  = _uso.get("input_tokens", 0)
+                        _output_tok = _uso.get("output_tokens", 0)
+                        _total_tok  = _uso.get("total_tokens", _input_tok + _output_tok)
+                        st.session_state["tokens_sessao"] = st.session_state.get("tokens_sessao", 0) + _total_tok
+                        st.session_state["n_mensagens_sessao"] = st.session_state.get("n_mensagens_sessao", 0) + 1
+                        _registro_tok = {
+                            "session_id": st.session_state.get("session_id", ""),
+                            "timestamp_inicio_sessao": st.session_state.get("session_inicio", ""),
+                            "timestamp_resposta": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "modelo": st.session_state.get("modelo", ""),
+                            "provedor": st.session_state.get("provedor", ""),
+                            "perfil_usuario": st.session_state.get("perfil_usuario", ""),
+                            "input_tokens": _input_tok,
+                            "output_tokens": _output_tok,
+                            "total_tokens": _total_tok,
+                            "tempo_resposta_seg": _tempo_resposta,
+                            "tokens_acumulados_sessao": st.session_state.get("tokens_sessao", 0),
+                            "n_mensagens_sessao": st.session_state.get("n_mensagens_sessao", 0),
+                        }
+                        import threading as _threading
+                        _threading.Thread(target=_salvar_log_tokens, args=(_registro_tok,), daemon=True).start()
 
                 else:
                     perfil = st.session_state.get("perfil_usuario")
@@ -1580,8 +1718,34 @@ def pagina_chat():
                         f"perguntar ao revendedor FleetPro mais próximo.\n\n"
                         f"Pergunta: {input_usuario}"
                     )
-                    resposta_stream = st.write_stream(chat_model.stream(prompt))
-                    resposta = resposta_stream
+                    import time as _time
+                    _t0 = _time.time()
+                    _response = chat_model.invoke(prompt)
+                    _tempo_resposta = round(_time.time() - _t0, 2)
+                    resposta = _response.content
+                    st.markdown(resposta)
+                    _uso = getattr(_response, "usage_metadata", {}) or {}
+                    _input_tok  = _uso.get("input_tokens", 0)
+                    _output_tok = _uso.get("output_tokens", 0)
+                    _total_tok  = _uso.get("total_tokens", _input_tok + _output_tok)
+                    st.session_state["tokens_sessao"] = st.session_state.get("tokens_sessao", 0) + _total_tok
+                    st.session_state["n_mensagens_sessao"] = st.session_state.get("n_mensagens_sessao", 0) + 1
+                    _registro_tok = {
+                        "session_id": st.session_state.get("session_id", ""),
+                        "timestamp_inicio_sessao": st.session_state.get("session_inicio", ""),
+                        "timestamp_resposta": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "modelo": st.session_state.get("modelo", ""),
+                        "provedor": st.session_state.get("provedor", ""),
+                        "perfil_usuario": st.session_state.get("perfil_usuario", ""),
+                        "input_tokens": _input_tok,
+                        "output_tokens": _output_tok,
+                        "total_tokens": _total_tok,
+                        "tempo_resposta_seg": _tempo_resposta,
+                        "tokens_acumulados_sessao": st.session_state.get("tokens_sessao", 0),
+                        "n_mensagens_sessao": st.session_state.get("n_mensagens_sessao", 0),
+                    }
+                    import threading as _threading
+                    _threading.Thread(target=_salvar_log_tokens, args=(_registro_tok,), daemon=True).start()
 
             else:
                 if resultado_matriz:
@@ -1632,9 +1796,18 @@ def sidebar():
         provedor = st.selectbox("Provedor", list(CONFIG_MODELOS.keys()), key="sel_provedor")
         modelo = st.selectbox("Modelo", CONFIG_MODELOS[provedor]["modelos"], key="sel_modelo")
 
+        # Lê cookie salvo para pré-preencher o campo
+        _cookie_key = f"fp_apikey_{provedor.lower()}"
+        _saved_key = ""
+        if _COOKIES_OK:
+            try:
+                _saved_key = _cookie_manager.get(_cookie_key) or ""
+            except Exception:
+                _saved_key = ""
+
         api_key = st.text_input(
             f"API key ({provedor})",
-            value=st.session_state.get(f"api_key_{provedor}", ""),
+            value=st.session_state.get(f"api_key_{provedor}", _saved_key),
             type="password",
             key="input_api_key_llm",
         )
@@ -1645,6 +1818,12 @@ def sidebar():
 
         if st.button("🚀 Inicializar FleetPro_Expert", use_container_width=True):
             inicializar_FleetPro(provedor, modelo, api_key)
+            # Salva a key no cookie (expira em 30 dias)
+            if _COOKIES_OK and api_key:
+                try:
+                    _cookie_manager.set(_cookie_key, api_key, max_age=60*60*24*30)
+                except Exception:
+                    pass
 
         st.divider()
         chat = st.session_state.get("chat")
@@ -1789,13 +1968,81 @@ def _salvar_erro_github(registro: dict):
 
 
 # ======================
+# Log de Tokens
+# ======================
+def _salvar_log_tokens(registro: dict):
+    """Commita uso_tokens.csv no repositório GitHub via API (background thread)."""
+    import base64, json, csv, io, urllib.request, urllib.error
+
+    token = st.secrets.get("GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", ""))
+    if not token:
+        return  # sem token, silencioso — não bloquear a UI
+
+    owner = "Antoniopneto9"
+    repo  = "Agente_FleetPro-1"
+    path  = "uso_tokens.csv"
+    api   = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    gh_headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+    }
+
+    def _fetch():
+        req = urllib.request.Request(api + "?ref=main", headers=gh_headers)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+                sha = data["sha"]
+                content_b64 = data["content"].replace("\n", "")
+                return sha, base64.b64decode(content_b64).decode("utf-8")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None, ""
+            raise
+
+    def _montar_conteudo(conteudo_atual):
+        campos = list(registro.keys())
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=campos, quoting=csv.QUOTE_ALL)
+        writer.writeheader()
+        if conteudo_atual.strip():
+            reader = csv.DictReader(io.StringIO(conteudo_atual))
+            for row in reader:
+                linha = {k: row.get(k, "") for k in campos}
+                writer.writerow(linha)
+        writer.writerow(registro)
+        return buf.getvalue()
+
+    def _put(sha, novo_conteudo):
+        payload = {
+            "message": f"log tokens: {registro.get('timestamp_resposta', '')[:10]}",
+            "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
+            "branch": "main",
+        }
+        if sha:
+            payload["sha"] = sha
+        req = urllib.request.Request(api, data=json.dumps(payload).encode(), headers=gh_headers, method="PUT")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                resp.read()
+        except urllib.error.HTTPError:
+            pass  # silencioso em background
+
+    try:
+        sha, conteudo_atual = _fetch()
+        _put(sha, _montar_conteudo(conteudo_atual))
+    except Exception:
+        pass  # nunca deixar o background thread crashar a UI
+
+
+# ======================
 # UI – Reportar Erro
 # ======================
 def popup_feedback():
     """Captura descrição do erro + histórico do chat principal e salva no projeto."""
     import datetime, csv
 
-    # Contador usado para resetar o key do text_area (força limpeza do widget)
     if "_feedback_reset_count" not in st.session_state:
         st.session_state["_feedback_reset_count"] = 0
 
@@ -1830,12 +2077,11 @@ def popup_feedback():
 
                     try:
                         _salvar_erro_github(registro)
-                        # Limpa o chat e o text_area após envio bem-sucedido
-                        memoria.clear()
+                        st.session_state["memoria"] = ConversationBufferMemory()
                         st.session_state["mensagens"] = []
                         st.session_state["_feedback_reset_count"] += 1
-                        st.success("✅ Erro reportado! Chat resetado.")
-                        st.rerun()
+                        st.session_state["_feedback_enviado"] = True
+                        st.success("✅ Erro reportado! Chat e caixa de feedback resetados.")
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
@@ -1844,6 +2090,11 @@ def popup_feedback():
 # Main
 # ======================
 def main():
+    # Rerun pendente do feedback — executar antes de qualquer widget ser renderizado
+    if st.session_state.get("_feedback_enviado"):
+        st.session_state["_feedback_enviado"] = False
+        st.rerun()
+
     pagina_chat()
     with st.sidebar:
         sidebar()
