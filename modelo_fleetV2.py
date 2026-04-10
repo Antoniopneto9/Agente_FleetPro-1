@@ -1402,6 +1402,36 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
 
 
 # ======================
+# Detecção de busca simples (sem intenção de argumentação)
+# ======================
+_VERBOS_ARGUMENTACAO = {
+    "beneficio", "benefícios", "vantagem", "vantagens", "argumento", "argumentos",
+    "por que", "porque", "convencer", "vender", "cross", "objecao", "objeção",
+    "diferencial", "diferenciais", "qualidade", "especificacao", "especificações",
+    "comparar", "versus", "melhor", "recomend", "indicar", "sugerir",
+}
+
+def _eh_busca_simples(mensagem: str) -> bool:
+    """
+    Retorna True se a mensagem é uma busca direta por produto/PN,
+    sem intenção de receber argumentação ou análise do LLM.
+    """
+    msg_lower = mensagem.lower().strip()
+    # Se contém verbo de argumentação, não é busca simples
+    for verbo in _VERBOS_ARGUMENTACAO:
+        if verbo in msg_lower:
+            return False
+    # Se tem ponto de interrogação, é uma pergunta → LLM responde
+    if "?" in msg_lower:
+        return False
+    # Mensagem curta sem verbo → busca simples (ex: "silo bolsa", "1890DSH", "rolamento")
+    palavras = msg_lower.split()
+    if len(palavras) <= 4:
+        return True
+    return False
+
+
+# ======================
 # UI – Chat principal
 # ======================
 def pagina_chat():
@@ -1416,6 +1446,70 @@ def pagina_chat():
 
     for mensagem in memoria.buffer_as_messages:
         st.chat_message(mensagem.type).markdown(mensagem.content)
+
+    # ── Argumentação de venda pendente (clique no botão) ─────────────────
+    if st.session_state.get("_argumentacao_pendente"):
+        _arg = st.session_state.pop("_argumentacao_pendente")
+        _input_arg = _arg["input_usuario"]
+        _resultado_arg = _arg["resultado_matriz"]
+        _contexto_arg = _arg.get("contexto_rag", "")
+        chat_model_arg = st.session_state.get("chat")
+        if chat_model_arg is not None:
+            _blocos_arg = ["## Resultado da Busca na Matriz FP\n\n" + _resultado_arg]
+            if _contexto_arg:
+                _blocos_arg.append("## Conhecimento Adicional\n\n" + _contexto_arg)
+            _ctx_arg = "\n\n---\n\n".join(_blocos_arg)
+            _prompt_arg = (
+                f"Você é o FleetPro Expert, assistente de vendas para vendedores de balcão.\n\n"
+                f"O vendedor quer argumentos de venda para o produto: **{_input_arg}**\n\n"
+                f"CONTEXTO SOBRE FLEETPRO:\n"
+                f"- FleetPro é a marca própria CNH Industrial para máquinas Case IH e New Holland.\n"
+                f"- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES — sempre apresente como produtos FleetPro.\n\n"
+                f"INSTRUÇÕES:\n"
+                f"- Use APENAS os dados abaixo. Não invente informações ausentes.\n"
+                f"- Estruture a resposta em seções curtas com bullet points:\n"
+                f"  1. **Opções disponíveis** — liste os PNs e descrições de forma limpa\n"
+                f"  2. **Argumentos de venda** — 3 a 5 bullets diretos para usar no balcão\n"
+                f"  3. **Como rebater objeções** — 2 bullets (preço / qualidade)\n"
+                f"  4. **Cross-selling** — 1 ou 2 produtos complementares se houver na base\n"
+                f"- Seja direto. O vendedor está atendendo o cliente agora.\n\n"
+                f"Dados das fontes:\n\n{_ctx_arg}"
+            )
+            with st.chat_message("ai"):
+                import time as _time
+                _t0 = _time.time()
+                _resp_arg = chat_model_arg.invoke(_prompt_arg)
+                _tempo_arg = round(_time.time() - _t0, 2)
+                _resposta_arg = _resp_arg.content
+                st.markdown(_resposta_arg)
+            memoria.chat_memory.add_user_message(f"[Argumentação] {_input_arg}")
+            memoria.chat_memory.add_ai_message(_resposta_arg)
+            st.session_state["memoria"] = memoria
+            _uso_arg = getattr(_resp_arg, "usage_metadata", {}) or {}
+            _in_arg = _uso_arg.get("input_tokens", 0)
+            _out_arg = _uso_arg.get("output_tokens", 0)
+            _tot_arg = _uso_arg.get("total_tokens", _in_arg + _out_arg)
+            st.session_state["tokens_sessao"] = st.session_state.get("tokens_sessao", 0) + _tot_arg
+            st.session_state["n_mensagens_sessao"] = st.session_state.get("n_mensagens_sessao", 0) + 1
+            import threading as _threading
+            _threading.Thread(
+                target=_salvar_log_tokens,
+                args=({
+                    "session_id": st.session_state.get("session_id", ""),
+                    "timestamp_inicio_sessao": st.session_state.get("session_inicio", ""),
+                    "timestamp_resposta": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "modelo": st.session_state.get("modelo", ""),
+                    "provedor": st.session_state.get("provedor", ""),
+                    "perfil_usuario": st.session_state.get("perfil_usuario", ""),
+                    "input_tokens": _in_arg,
+                    "output_tokens": _out_arg,
+                    "total_tokens": _tot_arg,
+                    "tempo_resposta_seg": _tempo_arg,
+                    "tokens_acumulados_sessao": st.session_state.get("tokens_sessao", 0),
+                    "n_mensagens_sessao": st.session_state.get("n_mensagens_sessao", 0),
+                },),
+                daemon=True,
+            ).start()
 
     # ── Botões de perfil (exibe apenas enquanto perfil não definido) ──────
     if st.session_state.get("perfil_usuario") is None:
@@ -1605,6 +1699,26 @@ def pagina_chat():
                         st.stop()
 
                     elif perfil == "vendedor":
+                        # ── Busca simples: mostra peças + botão de argumentação ──
+                        if _eh_busca_simples(input_usuario) and resultado_matriz and not contexto_rag:
+                            resposta = resultado_matriz
+                            st.markdown(resposta)
+                            if st.button(
+                                "💬 Ver argumentação de venda",
+                                key=f"btn_arg_{hash(input_usuario)}",
+                                type="secondary",
+                            ):
+                                st.session_state["_argumentacao_pendente"] = {
+                                    "input_usuario": input_usuario,
+                                    "resultado_matriz": resultado_matriz,
+                                    "contexto_rag": contexto_rag,
+                                }
+                                st.rerun()
+                            memoria.chat_memory.add_user_message(input_usuario)
+                            memoria.chat_memory.add_ai_message(resposta)
+                            st.session_state["memoria"] = memoria
+                            st.stop()
+
                         prompt = (
                             f"Você é o FleetPro Expert, um assistente de vendas especializado em apoiar vendedores de balcão "
                             f"na comercialização de peças de reposição FleetPro para máquinas agrícolas.\n\n"
