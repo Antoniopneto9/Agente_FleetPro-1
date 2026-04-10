@@ -1,7 +1,7 @@
-timestamp,descricao,modelo,provedor,historico_chat
-2026-04-08T17:49:23.988051,o agente nao responde nada,N/A,N/A,"HUMAN: ola
+"timestamp","descricao","modelo","provedor","historico_chat"
+"2026-04-08T17:49:23.988051","o agente nao responde nada","N/A","N/A","HUMAN: ola
 AI: "
-2026-04-08T18:35:35.612623,"a sidebar, continua se escondendo, e o agente continua sem conseguir identificar a quantidade de itens no portifólio sendo que a planilha tem a quantidade de linhas com isso.",llama-3.3-70b-versatile,Groq,"HUMAN: ola
+"2026-04-08T18:35:35.612623","a sidebar, continua se escondendo, e o agente continua sem conseguir identificar a quantidade de itens no portifólio sendo que a planilha tem a quantidade de linhas com isso.","llama-3.3-70b-versatile","Groq","HUMAN: ola
 AI: Antes de responder, preciso entender melhor como posso te ajudar! 😊
 
 **Você é:**
@@ -17,7 +17,7 @@ AI: Infelizmente, não encontrei informações específicas sobre o número tota
 Se o cliente estiver procurando por um item específico, posso ajudar a identificar o PN correto do FleetPro. Além disso, é importante lembrar que o FleetPro oferece produtos de alta qualidade, com especificações e características que atendem às necessidades do mercado, e muitas vezes com uma redução de custo em comparação com as peças originais.
 
 Você gostaria de saber mais sobre algum produto específico do FleetPro ou como podemos ajudar o cliente com sua demanda atual?"
-2026-04-08T18:53:27.735763,"o modelo, não acerta as respostas de maneira correta, apenas enrola e não diz nada com nada.",llama-3.3-70b-versatile,Groq,"HUMAN: ola
+"2026-04-08T18:53:27.735763","o modelo, não acerta as respostas de maneira correta, apenas enrola e não diz nada com nada.","llama-3.3-70b-versatile","Groq","HUMAN: ola
 AI: Antes de responder, preciso entender melhor como posso te ajudar! 😊
 
 **Você é:**
@@ -70,7 +70,7 @@ Para encontrar as peças FleetPro corretas para esses modelos, recomendo verific
 Se o cliente estiver procurando por uma peça específica, como a polia de acionamento da plataforma, posso mencionar que a FleetPro oferece opções de alta qualidade, como a polia de acionamento da plataforma FleetPro, que aciona o caracol e o sistema de corte da plataforma, com processos de fabricação que incluem fundição de liga especial, usinagem, balanceamento e tratamento térmico por indução.
 
 Lembre-se de que é sempre uma boa prática verificar a compatibilidade das peças com o modelo específico do cliente e oferecer opções de cross-selling para outros itens que possam ser necessários em conjunto com a peça solicitada. Se houver objeções de preço ou qualidade, estou aqui para ajudar a encontrar argumentos técnicos e comerciais para contorná-las."
-2026-04-09T14:42:54.809104,teste,llama-3.3-70b-versatile,Groq,"HUMAN: preciso de uma opção de rolamento fleetpro
+"2026-04-09T14:42:54.809104","teste","llama-3.3-70b-versatile","Groq","HUMAN: preciso de uma opção de rolamento fleetpro
 AI: Encontrei **50** produto(s) — **ROLAMENTOS** para **AM**:
 
 ### Produto 1
@@ -1945,8 +1945,8 @@ HUMAN: para o modelo, PUMA
 AI: Não encontrei essa informação na base FleetPro.
 HUMAN: esse modelo concluí buscas na web?
 AI: Sim, é possível realizar buscas na web para encontrar o modelo correto de peça FleetPro para o seu equipamento agrícola. O site da FleetPro oferece recursos como a busca por descrição, modelo, número de série ou palavra-chave, além de mostrar informações do componente e sua imagem em tempo real, facilitando o reconhecimento do item. Isso ajuda a garantir que você encontre a peça certa para o seu equipamento, seja ele da marca Case IH ou New Holland. Além disso, as peças FleetPro são fabricadas por fornecedores homologados, como VV, e são distribuídas com a marca FleetPro, garantindo qualidade e confiabilidade. Você gostaria de saber mais sobre como usar o site da FleetPro para encontrar a peça certa ou sobre as vantagens de escolher peças FleetPro para o seu equipamento?"
-2026-04-10T14:31:25.125897,"qual o PN de SILOBAG ?
-Não encontrei essa informação na base FleetPro.",llama-3.3-70b-versatile,Groq,"HUMAN: Vendedor
+"2026-04-10T14:31:25.125897","qual o PN de SILOBAG ?
+Não encontrei essa informação na base FleetPro.","llama-3.3-70b-versatile","Groq","HUMAN: Vendedor
 AI: ✅ Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta!
 HUMAN: quantos itens Fleetpro tem no portifólio?
 AI: O portfólio FleetPro possui **2964 itens** cadastrados na Matriz FP. Isso significa que temos uma ampla gama de produtos FleetPro disponíveis para atender às necessidades dos nossos clientes. Se o cliente estiver procurando por uma peça específica, posso ajudar a encontrar o PN FleetPro correto. Além disso, posso sugerir outros itens que possam ser úteis em conjunto com a demanda, como lubrificantes FleetPro ou lâminas de corte FleetPro. Quer que eu ajude a encontrar algo específico?
@@ -1979,12 +1979,12 @@ HUMAN: qual o PN de SILOBAG IPESA SILO ?
 AI: Não encontrei essa informação na base FleetPro.
 HUMAN: qual o PN de SILOBAG  ?
 AI: Não encontrei essa informação na base FleetPro."
-2026-04-10T14:34:14.818720,"quais são as peças Fleetpro aplicadas ao chassi: JHFY8230KKJB14380?
+"2026-04-10T14:34:14.818720","quais são as peças Fleetpro aplicadas ao chassi: JHFY8230KKJB14380?
 
 o chassi JHFY8230KKJB14380 possui peças fleetpro?
 
 Respostas:
-Não encontrei essa informação na base FleetPro",llama-3.3-70b-versatile,Groq,"HUMAN: Vendedor
+Não encontrei essa informação na base FleetPro","llama-3.3-70b-versatile","Groq","HUMAN: Vendedor
 AI: ✅ Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta!
 HUMAN: quantos itens Fleetpro tem no portifólio?
 AI: O portfólio FleetPro possui **2964 itens** cadastrados na Matriz FP. Isso significa que temos uma ampla gama de produtos FleetPro disponíveis para atender às necessidades dos nossos clientes. Se o cliente estiver procurando por uma peça específica, posso ajudar a encontrar o PN FleetPro correto. Além disso, posso sugerir outros itens que possam ser úteis em conjunto com a demanda, como lubrificantes FleetPro ou lâminas de corte FleetPro. Quer que eu ajude a encontrar algo específico?
