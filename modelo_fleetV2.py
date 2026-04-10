@@ -1815,8 +1815,9 @@ def popup_feedback():
                     st.warning("Descreva o erro antes de enviar.")
                 else:
                     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
-                    historico_str = "\n".join(
-                        f"{m.type.upper()}: {m.content}" for m in memoria.buffer_as_messages
+                    historico_str = " | ".join(
+                        f"{m.type.upper()}: {m.content.replace(chr(10), ' ').replace(chr(13), ' ')}"
+                        for m in memoria.buffer_as_messages
                     )
 
                     registro = {
