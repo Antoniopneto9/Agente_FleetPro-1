@@ -1008,7 +1008,13 @@ def _detectar_pergunta_contagem(mensagem: str) -> bool:
     palavras = ["quantos", "quantidade", "total de itens", "total de produtos",
                 "portfólio", "portfolio", "quantas peças", "quantas pecas",
                 "tamanho do portfólio", "itens no portfólio", "itens temos",
-                "peças temos", "pecas temos", "produtos temos"]
+                "peças temos", "pecas temos", "produtos temos",
+                "tem no portfólio", "tem no portfolio", "quantos itens tem",
+                "quantos produtos tem", "itens fleetpro", "produtos fleetpro tem",
+                "itens cadastrados", "produtos cadastrados", "peças fleetpro tem",
+                "pecas fleetpro tem", "quantos produtos", "quantas pecas tem",
+                "quantas peças tem", "quantos itens", "total de peças",
+                "total de pecas", "numero de itens", "número de itens"]
     msg = mensagem.lower()
     return any(p in msg for p in palavras)
 
@@ -1189,8 +1195,12 @@ def buscar_por_equipamento(df: "pd.DataFrame", mensagem: str, colunas_alvo: list
         resultados_por_coluna[col] = (df_col, truncado)
 
     if not resultados_por_coluna:
-        marcas = ", ".join(colunas_alvo)
-        return f"Não encontrei peças para as colunas: {marcas}."
+        return (
+            "Não encontrei peças para esse equipamento/modelo na Matriz FP. "
+            "Tente especificar o equipamento completo, por exemplo: "
+            "'COMBINE - CASE IH 2188', 'TRACTOR - CASE IH PUMA 150', "
+            "'COMBINE - NEW HOLLAND'. Você também pode buscar por PN ou categoria de produto."
+        )
 
     linhas_output = []
     total_itens = 0
@@ -1227,6 +1237,60 @@ def buscar_por_equipamento(df: "pd.DataFrame", mensagem: str, colunas_alvo: list
         header = f"Encontrei **{total_itens}** peça(s) compatível(is) (filtro de modelo: `{modelo_filtro}`):\n"
 
     return header + "\n".join(linhas_output)
+
+
+def buscar_por_description(df: "pd.DataFrame", mensagem: str, max_resultados: int = 30) -> str:
+    """
+    Busca fallback por texto livre na coluna DESCRIPTION.
+    Retorna string formatada ou vazia se não encontrar nada relevante.
+    """
+    import unicodedata
+
+    def norm(s: str) -> str:
+        return unicodedata.normalize("NFD", s.upper()).encode("ascii", "ignore").decode("ascii")
+
+    stopwords = {
+        "QUAIS", "QUAL", "PN", "PNS", "PARA", "NO", "NA", "OS", "AS", "DE",
+        "DO", "DA", "UM", "UMA", "QUE", "SAO", "ME", "MOSTRE", "MOSTRA",
+        "LISTA", "LISTAR", "VER", "TENHO", "PRECISO", "QUERO", "TEM", "FLEETPRO",
+        "DISPONIVEIS", "DISPONIVEL", "VOCES", "TEMOS", "HAI", "EXISTE", "EXISTEM",
+        "BUSCA", "BUSCAR", "ENCONTRA", "ACHAR", "THE", "AND", "FOR", "WITH",
+        "HAVE", "SHOW", "FIND", "GET", "ALL", "CASO", "ESSE", "ESSA", "ISSO",
+    }
+
+    tokens = [t for t in re.findall(r"[A-Za-z0-9]+", mensagem.upper())
+              if norm(t) not in stopwords and len(t) >= 3]
+
+    if not tokens or "description" not in df.columns:
+        return ""
+
+    # Filtra linhas onde DESCRIPTION contém algum dos tokens
+    desc_upper = df["description"].astype(str).apply(norm)
+    mask = pd.Series([False] * len(df), index=df.index)
+    for token in tokens:
+        mask = mask | desc_upper.str.contains(norm(token), na=False)
+
+    df_match = df[mask].head(max_resultados)
+    if df_match.empty:
+        return ""
+
+    linhas = [f"Encontrei **{len(df_match)}** item(ns) com descrição relacionada:\n"]
+    for _, row in df_match.iterrows():
+        descricao = str(row.get("description", "") or "").strip()
+        pn_fp = str(row.get("pn_fleetpro", "") or "").strip()
+        pn_gen = str(row.get("pn_gen", "") or "").strip()
+        mkt = str(row.get("marketing_project", "") or "").strip()
+
+        partes = [f"- **{descricao}**"]
+        if pn_fp and pn_fp not in ("-", ""):
+            partes.append(f"  PN FleetPro: `{pn_fp}`")
+        if pn_gen and pn_gen not in ("-", ""):
+            partes.append(f"  PN GEN: `{pn_gen}`")
+        if mkt and mkt not in ("-", ""):
+            partes.append(f"  Categoria: {mkt}")
+        linhas.append("\n".join(partes))
+
+    return "\n".join(linhas)
 
 
 def _buscar_pn_no_df(df: "pd.DataFrame", pn_norm: str, max_resultados: int) -> "pd.DataFrame":
@@ -1430,6 +1494,13 @@ def pagina_chat():
                     resultado_matriz = buscar_por_marketing(df_fp, termo_marketing, input_usuario, max_resultados)
                 else:
                     resultado_matriz = procurar_pn(df_fp, input_usuario, max_resultados)
+
+                # ── Fallback: busca por texto livre na coluna DESCRIPTION ──────
+                # Ativado quando nenhuma busca retornou resultado útil
+                if not resultado_matriz or resultado_matriz.startswith("Não encontrei") or resultado_matriz.startswith("PN não encontrado"):
+                    resultado_descricao = buscar_por_description(df_fp, input_usuario, max_resultados)
+                    if resultado_descricao:
+                        resultado_matriz = resultado_descricao
 
             # ── 2. Busca RAG (documentos locais + site FleetPro) ──────────────
             contexto_rag = ""
