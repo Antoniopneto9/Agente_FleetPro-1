@@ -2045,13 +2045,6 @@ def popup_feedback():
 
     if "_feedback_reset_count" not in st.session_state:
         st.session_state["_feedback_reset_count"] = 0
-    if "_feedback_enviado" not in st.session_state:
-        st.session_state["_feedback_enviado"] = False
-
-    # Executa reset fora do contexto do expander para garantir st.rerun() limpo
-    if st.session_state["_feedback_enviado"]:
-        st.session_state["_feedback_enviado"] = False
-        st.rerun()
 
     with st.sidebar:
         st.divider()
@@ -2097,6 +2090,11 @@ def popup_feedback():
 # Main
 # ======================
 def main():
+    # Rerun pendente do feedback — executar antes de qualquer widget ser renderizado
+    if st.session_state.get("_feedback_enviado"):
+        st.session_state["_feedback_enviado"] = False
+        st.rerun()
+
     pagina_chat()
     with st.sidebar:
         sidebar()
