@@ -7,6 +7,4 @@ __pycache__/
 *.docx
 
 base_docs/Matriz_FP.csv
-erros_reportados.csv
-uso_tokens.csv
 cronograma/
