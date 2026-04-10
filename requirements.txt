@@ -13,6 +13,7 @@ pandas>=2.0.0
 openpyxl>=3.1.0
 pypdf>=4.0.0
 python-dotenv>=1.0.0
+extra-streamlit-components>=0.1.60
 sentence-transformers>=3.0.0
 python-pptx>=0.6.21
 docx2txt>=0.8

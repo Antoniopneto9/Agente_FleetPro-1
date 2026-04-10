@@ -9,6 +9,14 @@ import streamlit as st
 
 st.set_page_config(page_title="FleetPro Expert", layout="wide", initial_sidebar_state="expanded")
 
+try:
+    import extra_streamlit_components as stx
+    _cookie_manager = stx.CookieManager(key="fleetpro_cookies")
+    _COOKIES_OK = True
+except Exception:
+    _cookie_manager = None
+    _COOKIES_OK = False
+
 
 def safe_run(fn):
     try:
@@ -1788,9 +1796,18 @@ def sidebar():
         provedor = st.selectbox("Provedor", list(CONFIG_MODELOS.keys()), key="sel_provedor")
         modelo = st.selectbox("Modelo", CONFIG_MODELOS[provedor]["modelos"], key="sel_modelo")
 
+        # Lê cookie salvo para pré-preencher o campo
+        _cookie_key = f"fp_apikey_{provedor.lower()}"
+        _saved_key = ""
+        if _COOKIES_OK:
+            try:
+                _saved_key = _cookie_manager.get(_cookie_key) or ""
+            except Exception:
+                _saved_key = ""
+
         api_key = st.text_input(
             f"API key ({provedor})",
-            value=st.session_state.get(f"api_key_{provedor}", ""),
+            value=st.session_state.get(f"api_key_{provedor}", _saved_key),
             type="password",
             key="input_api_key_llm",
         )
@@ -1801,6 +1818,12 @@ def sidebar():
 
         if st.button("🚀 Inicializar FleetPro_Expert", use_container_width=True):
             inicializar_FleetPro(provedor, modelo, api_key)
+            # Salva a key no cookie (expira em 30 dias)
+            if _COOKIES_OK and api_key:
+                try:
+                    _cookie_manager.set(_cookie_key, api_key, max_age=60*60*24*30)
+                except Exception:
+                    pass
 
         st.divider()
         chat = st.session_state.get("chat")
@@ -2061,7 +2084,7 @@ def popup_feedback():
 
                     try:
                         _salvar_erro_github(registro)
-                        memoria.clear()
+                        memoria.chat_memory.clear()
                         st.session_state["mensagens"] = []
                         st.session_state["_feedback_reset_count"] += 1
                         st.session_state["_feedback_enviado"] = True
