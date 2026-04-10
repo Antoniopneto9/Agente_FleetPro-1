@@ -1,0 +1,25 @@
+timestamp,descricao,modelo,provedor,historico_chat
+2026-04-10T19:19:35.366845,"qual os beneficios do silobag?
+
+Não encontrei essa informação na base FleetPro.
+
+Verifique se esse tipo de pergunta está no material além da planilha.",llama-3.3-70b-versatile,Groq,"HUMAN: Vendedor
+AI: ✅ Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta!
+HUMAN: 4488
+AI: Não encontrei essa informação na base FleetPro. Verifique se o número está correto ou tente digitar apenas o código da peça. Posso ajudar com mais alguma coisa?
+HUMAN: silobolsa
+AI: Não encontrei essa informação na base FleetPro.
+HUMAN: silo bolsa
+AI: Para o silo bolsa, encontramos 5 itens relacionados na nossa base de dados FleetPro. Os números de peça FleetPro para esses itens são:
+
+- `1860DSH` para o SILOBAG IPESA SILO 6 PES
+- `1875DSH` para o SILOBAG IPESA SILO 75 REFOR
+- `1890DSH` para o SILOBAG IPESA SILO 9 PES REFOR
+- `1891DSH` para o SILOBAG IPESA SILO 75 GRAO
+- `2952DSH` para o SILOBAG IPESA SILO 9 PES GRAO
+
+Esses produtos são oferecidos como FleetPro, garantindo qualidade e confiabilidade. Além disso, é importante destacar que a estrutura de distribuição da IPESA, fornecedora dos produtos FleetPro, está preparada para atender à demanda mundial, com várias fábricas e centros de distribuição localizados em diferentes regiões.
+
+Você gostaria de saber mais sobre algum desses itens específicos ou como eles podem atender às necessidades do seu cliente? Ou talvez esteja interessado em explorar outras opções de produtos FleetPro que possam ser úteis em conjunto com o silo bolsa?
+HUMAN: qual os beneficios do silobag?
+AI: Não encontrei essa informação na base FleetPro."
