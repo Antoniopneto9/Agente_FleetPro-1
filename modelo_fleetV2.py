@@ -1922,7 +1922,7 @@ def _salvar_erro_github(registro: dict):
     }
 
     def _fetch():
-        req = urllib.request.Request(api + "?ref=main", headers=gh_headers)
+        req = urllib.request.Request(api + "?ref=prod", headers=gh_headers)
         try:
             with urllib.request.urlopen(req) as resp:
                 data = json.loads(resp.read())
@@ -1952,7 +1952,7 @@ def _salvar_erro_github(registro: dict):
         payload = {
             "message": f"erro reportado: {registro['timestamp'][:10]}",
             "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
-            "branch": "main",
+            "branch": "prod",
         }
         if sha:
             payload["sha"] = sha
@@ -1989,7 +1989,7 @@ def _salvar_log_tokens(registro: dict):
     }
 
     def _fetch():
-        req = urllib.request.Request(api + "?ref=main", headers=gh_headers)
+        req = urllib.request.Request(api + "?ref=prod", headers=gh_headers)
         try:
             with urllib.request.urlopen(req) as resp:
                 data = json.loads(resp.read())
@@ -2018,7 +2018,7 @@ def _salvar_log_tokens(registro: dict):
         payload = {
             "message": f"log tokens: {registro.get('timestamp_resposta', '')[:10]}",
             "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
-            "branch": "main",
+            "branch": "prod",
         }
         if sha:
             payload["sha"] = sha
