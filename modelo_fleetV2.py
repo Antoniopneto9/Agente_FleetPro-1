@@ -1266,7 +1266,20 @@ def buscar_por_description(df: "pd.DataFrame", mensagem: str, max_resultados: in
         "HAVE", "SHOW", "FIND", "GET", "ALL", "CASO", "ESSE", "ESSA", "ISSO",
     }
 
-    tokens = [t for t in re.findall(r"[A-Za-z0-9]+", mensagem.upper())
+    # Mapeamento de sinônimos: variação do usuário → termo na base
+    _SINONIMOS = {
+        "SILOBOLSA": "SILOBAG",
+        "SILO BOLSA": "SILOBAG",
+        "BOLSA SILO": "SILOBAG",
+        "BOLSA": "SILOBAG",
+    }
+
+    # Normaliza a mensagem aplicando sinônimos antes de tokenizar
+    msg_norm = norm(mensagem)
+    for variacao, substituto in _SINONIMOS.items():
+        msg_norm = msg_norm.replace(norm(variacao), substituto)
+
+    tokens = [t for t in re.findall(r"[A-Za-z0-9]+", msg_norm)
               if norm(t) not in stopwords and len(t) >= 3]
 
     if not tokens or "description" not in df.columns:
