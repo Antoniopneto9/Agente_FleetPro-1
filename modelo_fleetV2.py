@@ -2080,8 +2080,7 @@ def popup_feedback():
                         st.session_state["memoria"] = ConversationBufferMemory()
                         st.session_state["mensagens"] = []
                         st.session_state["_feedback_reset_count"] += 1
-                        st.session_state["_feedback_enviado"] = True
-                        st.success("✅ Erro reportado! Chat e caixa de feedback resetados.")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
@@ -2090,11 +2089,6 @@ def popup_feedback():
 # Main
 # ======================
 def main():
-    # Rerun pendente do feedback — executar antes de qualquer widget ser renderizado
-    if st.session_state.get("_feedback_enviado"):
-        st.session_state["_feedback_enviado"] = False
-        st.rerun()
-
     pagina_chat()
     with st.sidebar:
         sidebar()
