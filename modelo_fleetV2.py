@@ -1265,7 +1265,7 @@ def buscar_por_description(df: "pd.DataFrame", mensagem: str, max_resultados: in
         return ""
 
     # Filtra linhas onde DESCRIPTION contém algum dos tokens
-    desc_upper = df["description"].astype(str).apply(norm)
+    desc_upper = df["description"].fillna("").astype(str).apply(norm)
     mask = pd.Series([False] * len(df), index=df.index)
     for token in tokens:
         mask = mask | desc_upper.str.contains(norm(token), na=False)
