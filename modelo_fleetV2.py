@@ -1370,7 +1370,8 @@ def procurar_pn(df: "pd.DataFrame", mensagem_usuario: str, max_resultados: int =
 # Inicializar LLM
 # ======================
 def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
-    api_key = (api_key or "").strip()
+    # Remove espaços, quebras de linha e caracteres não-ASCII (evita UnicodeEncodeError no header HTTP)
+    api_key = "".join(c for c in (api_key or "") if ord(c) < 128).strip()
     if not api_key:
         st.error("Informe a API key antes de inicializar.")
         return
