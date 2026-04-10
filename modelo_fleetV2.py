@@ -1476,13 +1476,13 @@ def pagina_chat():
                 f"- Seja direto. O vendedor está atendendo o cliente agora.\n\n"
                 f"Dados das fontes:\n\n{_ctx_arg}"
             )
+            import time as _time
+            _t0 = _time.time()
             with st.chat_message("ai"):
-                import time as _time
-                _t0 = _time.time()
-                _resp_arg = chat_model_arg.invoke(_prompt_arg)
-                _tempo_arg = round(_time.time() - _t0, 2)
-                _resposta_arg = _resp_arg.content
-                st.markdown(_resposta_arg)
+                with st.spinner("Gerando argumentação..."):
+                    _resp_arg = chat_model_arg.invoke(_prompt_arg)
+            _tempo_arg = round(_time.time() - _t0, 2)
+            _resposta_arg = _resp_arg.content
             memoria.chat_memory.add_user_message(f"[Argumentação] {_input_arg}")
             memoria.chat_memory.add_ai_message(_resposta_arg)
             st.session_state["memoria"] = memoria
@@ -1511,6 +1511,7 @@ def pagina_chat():
                 },),
                 daemon=True,
             ).start()
+            st.rerun()
 
     # ── Botões de perfil (exibe apenas enquanto perfil não definido) ──────
     if st.session_state.get("perfil_usuario") is None:
