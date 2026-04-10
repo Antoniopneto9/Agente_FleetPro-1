@@ -2020,9 +2020,15 @@ def popup_feedback():
     """Captura descrição do erro + histórico do chat principal e salva no projeto."""
     import datetime, csv
 
-    # Contador usado para resetar o key do text_area (força limpeza do widget)
     if "_feedback_reset_count" not in st.session_state:
         st.session_state["_feedback_reset_count"] = 0
+    if "_feedback_enviado" not in st.session_state:
+        st.session_state["_feedback_enviado"] = False
+
+    # Executa reset fora do contexto do expander para garantir st.rerun() limpo
+    if st.session_state["_feedback_enviado"]:
+        st.session_state["_feedback_enviado"] = False
+        st.rerun()
 
     with st.sidebar:
         st.divider()
@@ -2055,12 +2061,11 @@ def popup_feedback():
 
                     try:
                         _salvar_erro_github(registro)
-                        # Limpa o chat e o text_area após envio bem-sucedido
                         memoria.clear()
                         st.session_state["mensagens"] = []
                         st.session_state["_feedback_reset_count"] += 1
-                        st.success("✅ Erro reportado! Chat resetado.")
-                        st.rerun()
+                        st.session_state["_feedback_enviado"] = True
+                        st.success("✅ Erro reportado! Chat e caixa de feedback resetados.")
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
