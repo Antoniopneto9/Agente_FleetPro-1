@@ -1377,11 +1377,18 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
 # UI – Chat principal
 # ======================
 def pagina_chat():
-    col_logo, col_titulo = st.columns([1, 6])
+    col_logo, col_titulo = st.columns([1, 8])
     with col_logo:
-        st.image("base_docs/fleetpro_logo.png", width=120)
+        st.image("base_docs/fleetpro_logo.png", width=64)
     with col_titulo:
-        st.header("🕵️‍♂️ FleetPro Expert 🛠️", divider=True)
+        st.markdown(
+            "<div style='padding-top:6px'>"
+            "<span style='font-size:1.35rem;font-weight:700;color:#fff;letter-spacing:-0.02em;'>FleetPro Expert</span>"
+            "<br><span style='font-size:0.78rem;color:#555;'>Consulta de peças de reposição · CNH Industrial</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<hr style='border:none;border-top:1px solid #222;margin:0.75rem 0 0 0;'>", unsafe_allow_html=True)
 
     chat_model = st.session_state.get("chat")
     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
@@ -1690,8 +1697,8 @@ def pagina_chat():
 # UI – Barra lateral
 # ======================
 def sidebar():
-    st.title("⚙️ Configurações")
-    st.image("base_docs/cnh_logo.png", width=180)
+    st.image("base_docs/cnh_black-0306eafd1534796f436dffaf14389d23.png", width=80)
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
     # ── Seção 1: Modelo de linguagem (LLM) ──────────────────────────────────
     with st.expander("🤖 Modelo de Linguagem (LLM)", expanded=True):
@@ -1914,7 +1921,183 @@ def popup_feedback():
 # ======================
 # Main
 # ======================
+def _inject_css():
+    st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+html, body, .stApp {
+    background-color: #0d0d0d !important;
+    color: #e8e8e8 !important;
+    font-family: 'Inter', 'Roboto', system-ui, sans-serif !important;
+}
+.main .block-container {
+    padding-top: 1.5rem !important;
+    max-width: 860px !important;
+}
+
+/* ── Tipografia ───────────────────────────────────────────────────────── */
+* { font-family: 'Inter', 'Roboto', system-ui, sans-serif !important; }
+h1, h2, h3 { font-weight: 700 !important; letter-spacing: -0.02em !important; color: #ffffff !important; }
+p, li, span, div { color: #e8e8e8; }
+
+/* ── Ocultar elementos Streamlit ──────────────────────────────────────── */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+[data-testid="stToolbar"] { display: none !important; }
+header[data-testid="stHeader"] { background: transparent !important; border-bottom: none !important; }
+[data-testid="stDecoration"] { display: none !important; }
+.viewerBadge_container__r5tak { display: none !important; }
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: #111111 !important;
+    border-right: 1px solid #222222 !important;
+}
+[data-testid="stSidebar"] .stTitle,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] div {
+    color: #d0d0d0 !important;
+}
+[data-testid="stSidebarContent"] { background-color: #111111 !important; }
+
+/* ── Chat messages ────────────────────────────────────────────────────── */
+[data-testid="stChatMessage"] {
+    background-color: transparent !important;
+    border-radius: 10px !important;
+    padding: 0.6rem 0.8rem !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    background-color: #1a1a1a !important;
+    border: 1px solid #252525 !important;
+}
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+    background-color: transparent !important;
+    border: none !important;
+}
+
+/* ── Input de chat ────────────────────────────────────────────────────── */
+[data-testid="stChatInput"] {
+    background-color: #111 !important;
+    border-top: 1px solid #222 !important;
+}
+[data-testid="stChatInput"] textarea {
+    background-color: #1a1a1a !important;
+    border: 1px solid #333 !important;
+    border-radius: 12px !important;
+    color: #e8e8e8 !important;
+    font-size: 0.95rem !important;
+}
+[data-testid="stChatInput"] textarea:focus {
+    border-color: #555 !important;
+    box-shadow: none !important;
+}
+[data-testid="stChatInput"] textarea::placeholder {
+    color: #555 !important;
+}
+
+/* ── Botões ───────────────────────────────────────────────────────────── */
+.stButton > button {
+    background-color: #1e1e1e !important;
+    color: #e8e8e8 !important;
+    border: 1px solid #333 !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    transition: background-color 0.15s, border-color 0.15s !important;
+}
+.stButton > button:hover {
+    background-color: #2a2a2a !important;
+    border-color: #555 !important;
+    color: #fff !important;
+}
+
+/* ── Botões de perfil — maiores ───────────────────────────────────────── */
+div[data-testid="column"] .stButton > button {
+    height: 56px !important;
+    font-size: 0.95rem !important;
+}
+
+/* ── Expanders ────────────────────────────────────────────────────────── */
+[data-testid="stExpander"] {
+    background-color: #111 !important;
+    border: 1px solid #222 !important;
+    border-radius: 8px !important;
+}
+[data-testid="stExpander"] summary {
+    color: #d0d0d0 !important;
+    font-weight: 600 !important;
+}
+[data-testid="stExpander"] summary:hover {
+    color: #fff !important;
+}
+
+/* ── Selectbox / Text inputs ──────────────────────────────────────────── */
+[data-testid="stSelectbox"] > div > div,
+.stTextInput > div > div > input {
+    background-color: #1a1a1a !important;
+    color: #e8e8e8 !important;
+    border-color: #333 !important;
+    border-radius: 8px !important;
+}
+[data-baseweb="select"] {
+    background-color: #1a1a1a !important;
+}
+[data-baseweb="select"] * {
+    background-color: #1a1a1a !important;
+    color: #e8e8e8 !important;
+}
+[data-baseweb="popover"] {
+    background-color: #1a1a1a !important;
+    border: 1px solid #333 !important;
+}
+[data-baseweb="menu"] li {
+    background-color: #1a1a1a !important;
+    color: #e8e8e8 !important;
+}
+[data-baseweb="menu"] li:hover {
+    background-color: #2a2a2a !important;
+}
+
+/* ── Text area (feedback) ─────────────────────────────────────────────── */
+.stTextArea textarea {
+    background-color: #1a1a1a !important;
+    color: #e8e8e8 !important;
+    border-color: #333 !important;
+    border-radius: 8px !important;
+}
+
+/* ── Toggle / Slider ──────────────────────────────────────────────────── */
+[data-testid="stSlider"] > div { background-color: transparent !important; }
+
+/* ── Alerts / info / warning / success ───────────────────────────────── */
+[data-testid="stAlert"] {
+    background-color: #1a1a1a !important;
+    border-color: #333 !important;
+    color: #e8e8e8 !important;
+    border-radius: 8px !important;
+}
+
+/* ── Divider ──────────────────────────────────────────────────────────── */
+hr { border-color: #222 !important; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0d0d0d; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ── Logo CNH: fundo branco → visível no dark ─────────────────────────── */
+img[src*="cnh"] { filter: invert(1) brightness(1.8) !important; }
+</style>
+""", unsafe_allow_html=True)
+
+
 def main():
+    _inject_css()
     pagina_chat()
     with st.sidebar:
         sidebar()
