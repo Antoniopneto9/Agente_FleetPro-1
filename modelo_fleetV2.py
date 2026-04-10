@@ -1692,7 +1692,7 @@ def pagina_chat():
 # UI – Barra lateral
 # ======================
 def sidebar():
-    st.image("base_docs/cnh_black-0306eafd1534796f436dffaf14389d23.png", width=80)
+    st.image("base_docs/cnh_logo.png", width=120)
     st.divider()
 
     # ── Seção 1: Modelo de linguagem (LLM) ──────────────────────────────────
