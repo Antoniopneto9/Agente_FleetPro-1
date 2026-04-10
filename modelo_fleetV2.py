@@ -2084,7 +2084,7 @@ def popup_feedback():
 
                     try:
                         _salvar_erro_github(registro)
-                        memoria.chat_memory.clear()
+                        st.session_state["memoria"] = ConversationBufferMemory()
                         st.session_state["mensagens"] = []
                         st.session_state["_feedback_reset_count"] += 1
                         st.session_state["_feedback_enviado"] = True
