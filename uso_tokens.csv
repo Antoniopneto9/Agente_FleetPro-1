@@ -1,2 +1,3 @@
 "session_id","timestamp_inicio_sessao","timestamp_resposta","modelo","provedor","perfil_usuario","input_tokens","output_tokens","total_tokens","tempo_resposta_seg","tokens_acumulados_sessao","n_mensagens_sessao"
 "fb354450","2026-04-10T19:03:36.503652","2026-04-10T19:08:57","llama-3.3-70b-versatile","Groq","vendedor","859","43","902","0.46","902","1"
+"fb354450","2026-04-10T19:03:36.503652","2026-04-10T19:09:02","llama-3.3-70b-versatile","Groq","vendedor","1214","13","1227","0.23","2129","2"
