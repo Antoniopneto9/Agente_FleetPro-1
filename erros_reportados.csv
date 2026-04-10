@@ -38,3 +38,6 @@ o modelo deveria entender que silobolsa e silobag são a mesma coisa.","llama-3.
 Não encontrei essa informação na base FleetPro.
 
 Ele deveria saber que silobag é silobolsa, entender pq nao está acontecendo.","llama-3.3-70b-versatile","Groq","HUMAN: Vendedor | AI: ✅ Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta! | HUMAN: silobag | AI: Não encontrei essa informação na base FleetPro."
+"2026-04-10T20:14:07.783409","silobag
+
+Não encontrei essa informação na base FleetPro. deveria saber o que é silobolsa.","llama-3.3-70b-versatile","Groq","HUMAN: Vendedor | AI: ✅ Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta! | HUMAN: silobag | AI: Não encontrei essa informação na base FleetPro."
