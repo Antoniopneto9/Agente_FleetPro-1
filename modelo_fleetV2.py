@@ -1758,16 +1758,15 @@ def _salvar_erro_github(registro: dict):
 
     def _montar_conteudo(conteudo_atual):
         campos = list(registro.keys())
-        if not conteudo_atual.strip():
-            buf = io.StringIO()
-            writer = csv.DictWriter(buf, fieldnames=campos)
-            writer.writeheader()
-            writer.writerow(registro)
-        else:
-            buf = io.StringIO()
-            buf.write(conteudo_atual.rstrip("\n") + "\n")
-            writer = csv.DictWriter(buf, fieldnames=campos)
-            writer.writerow(registro)
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=campos, quoting=csv.QUOTE_ALL)
+        writer.writeheader()
+        if conteudo_atual.strip():
+            reader = csv.DictReader(io.StringIO(conteudo_atual))
+            for row in reader:
+                linha = {k: row.get(k, "") for k in campos}
+                writer.writerow(linha)
+        writer.writerow(registro)
         return buf.getvalue()
 
     def _put(sha, novo_conteudo):
