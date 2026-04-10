@@ -1377,13 +1377,11 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
 # UI – Chat principal
 # ======================
 def pagina_chat():
-    col_logo, col_titulo = st.columns([1, 8])
+    col_logo, col_titulo = st.columns([1, 6])
     with col_logo:
-        st.image("base_docs/fleetpro_logo.png", width=60)
+        st.image("base_docs/fleetpro_logo.png", width=120)
     with col_titulo:
-        st.markdown("### FleetPro Expert")
-        st.caption("Consulta de peças de reposição · CNH Industrial")
-    st.divider()
+        st.header("🕵️‍♂️ FleetPro Expert 🛠️", divider=True)
 
     chat_model = st.session_state.get("chat")
     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
@@ -1692,8 +1690,8 @@ def pagina_chat():
 # UI – Barra lateral
 # ======================
 def sidebar():
-    st.image("base_docs/cnh_black-0306eafd1534796f436dffaf14389d23.png", width=80)
-    st.divider()
+    st.title("⚙️ Configurações")
+    st.image("base_docs/cnh_logo.png", width=180)
 
     # ── Seção 1: Modelo de linguagem (LLM) ──────────────────────────────────
     with st.expander("🤖 Modelo de Linguagem (LLM)", expanded=True):
@@ -1909,29 +1907,7 @@ def popup_feedback():
 # ======================
 # Main
 # ======================
-def _inject_css():
-    st.markdown("""
-<style>
-/* Ocultar elementos padrão do Streamlit */
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-header[data-testid="stHeader"] { background: transparent !important; }
-[data-testid="stDecoration"] { display: none !important; }
-
-/* Scrollbar */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: #0d0d0d; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #555; }
-
-/* Logo CNH: inverte preto → branco no fundo escuro */
-[data-testid="stSidebar"] img { filter: invert(1) brightness(2) !important; }
-</style>
-""", unsafe_allow_html=True)
-
-
 def main():
-    _inject_css()
     pagina_chat()
     with st.sidebar:
         sidebar()
