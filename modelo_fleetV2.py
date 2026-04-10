@@ -1795,21 +1795,24 @@ def popup_feedback():
     """Captura descrição do erro + histórico do chat principal e salva no projeto."""
     import datetime, csv
 
+    # Contador usado para resetar o key do text_area (força limpeza do widget)
+    if "_feedback_reset_count" not in st.session_state:
+        st.session_state["_feedback_reset_count"] = 0
+
     with st.sidebar:
         st.divider()
         with st.expander("🐛 Reportar Erro", expanded=False):
+            reset_count = st.session_state["_feedback_reset_count"]
             descricao = st.text_area(
                 "O que aconteceu?",
                 placeholder="Ex: Perguntei sobre o PN X e o modelo retornou Y errado.",
                 height=100,
-                key="feedback_descricao",
+                key=f"feedback_descricao_{reset_count}",
             )
 
-            if st.button("📤 Enviar Erro", use_container_width=True, key="btn_enviar_feedback", type="primary"):
+            if st.button("📤 Enviar Erro", use_container_width=True, key=f"btn_enviar_feedback_{reset_count}", type="primary"):
                 if not descricao.strip():
                     st.warning("Descreva o erro antes de enviar.")
-                elif st.session_state.get("_feedback_enviado") == descricao.strip():
-                    st.success("✅ Erro reportado! Obrigado.")
                 else:
                     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
                     historico_str = "\n".join(
@@ -1826,8 +1829,12 @@ def popup_feedback():
 
                     try:
                         _salvar_erro_github(registro)
-                        st.session_state["_feedback_enviado"] = descricao.strip()
-                        st.success("✅ Erro reportado! Obrigado.")
+                        # Limpa o chat e o text_area após envio bem-sucedido
+                        memoria.clear()
+                        st.session_state["mensagens"] = []
+                        st.session_state["_feedback_reset_count"] += 1
+                        st.success("✅ Erro reportado! Chat resetado.")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
 
