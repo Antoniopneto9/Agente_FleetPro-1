@@ -1701,7 +1701,7 @@ def pagina_chat():
 
                     elif perfil == "vendedor":
                         # ── Busca simples: mostra peças + botão de argumentação ──
-                        if _eh_busca_simples(input_usuario) and resultado_matriz and not contexto_rag:
+                        if _eh_busca_simples(input_usuario) and resultado_matriz:
                             resposta = resultado_matriz
                             st.markdown(resposta)
                             if st.button(
