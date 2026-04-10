@@ -1363,6 +1363,13 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
     st.session_state["api_key_openai_rag"] = api_key if provedor == "OpenAI" else st.session_state.get("api_key_openai_rag", "")
     st.session_state.setdefault("memoria", ConversationBufferMemory())
 
+    if "session_id" not in st.session_state:
+        import uuid, datetime as _dt
+        st.session_state["session_id"] = str(uuid.uuid4())[:8]
+        st.session_state["session_inicio"] = _dt.datetime.now().isoformat()
+        st.session_state["tokens_sessao"] = 0
+        st.session_state["n_mensagens_sessao"] = 0
+
     resetar_vectorstore()
     with st.spinner("Indexando documentos..."):
         vs = obter_vectorstore()
@@ -1601,8 +1608,34 @@ def pagina_chat():
                             f"Informações das fontes:\n\n"
                             f"{contexto_completo}"
                         )
-                        resposta_stream = st.write_stream(chat_model.stream(prompt))
-                        resposta = resposta_stream
+                        import time as _time
+                        _t0 = _time.time()
+                        _response = chat_model.invoke(prompt)
+                        _tempo_resposta = round(_time.time() - _t0, 2)
+                        resposta = _response.content
+                        st.markdown(resposta)
+                        _uso = getattr(_response, "usage_metadata", {}) or {}
+                        _input_tok  = _uso.get("input_tokens", 0)
+                        _output_tok = _uso.get("output_tokens", 0)
+                        _total_tok  = _uso.get("total_tokens", _input_tok + _output_tok)
+                        st.session_state["tokens_sessao"] = st.session_state.get("tokens_sessao", 0) + _total_tok
+                        st.session_state["n_mensagens_sessao"] = st.session_state.get("n_mensagens_sessao", 0) + 1
+                        _registro_tok = {
+                            "session_id": st.session_state.get("session_id", ""),
+                            "timestamp_inicio_sessao": st.session_state.get("session_inicio", ""),
+                            "timestamp_resposta": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "modelo": st.session_state.get("modelo", ""),
+                            "provedor": st.session_state.get("provedor", ""),
+                            "perfil_usuario": st.session_state.get("perfil_usuario", ""),
+                            "input_tokens": _input_tok,
+                            "output_tokens": _output_tok,
+                            "total_tokens": _total_tok,
+                            "tempo_resposta_seg": _tempo_resposta,
+                            "tokens_acumulados_sessao": st.session_state.get("tokens_sessao", 0),
+                            "n_mensagens_sessao": st.session_state.get("n_mensagens_sessao", 0),
+                        }
+                        import threading as _threading
+                        _threading.Thread(target=_salvar_log_tokens, args=(_registro_tok,), daemon=True).start()
 
                     elif perfil == "usuario":
                         prompt = (
@@ -1628,8 +1661,34 @@ def pagina_chat():
                             f"Informações das fontes:\n\n"
                             f"{contexto_completo}"
                         )
-                        resposta_stream = st.write_stream(chat_model.stream(prompt))
-                        resposta = resposta_stream
+                        import time as _time
+                        _t0 = _time.time()
+                        _response = chat_model.invoke(prompt)
+                        _tempo_resposta = round(_time.time() - _t0, 2)
+                        resposta = _response.content
+                        st.markdown(resposta)
+                        _uso = getattr(_response, "usage_metadata", {}) or {}
+                        _input_tok  = _uso.get("input_tokens", 0)
+                        _output_tok = _uso.get("output_tokens", 0)
+                        _total_tok  = _uso.get("total_tokens", _input_tok + _output_tok)
+                        st.session_state["tokens_sessao"] = st.session_state.get("tokens_sessao", 0) + _total_tok
+                        st.session_state["n_mensagens_sessao"] = st.session_state.get("n_mensagens_sessao", 0) + 1
+                        _registro_tok = {
+                            "session_id": st.session_state.get("session_id", ""),
+                            "timestamp_inicio_sessao": st.session_state.get("session_inicio", ""),
+                            "timestamp_resposta": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "modelo": st.session_state.get("modelo", ""),
+                            "provedor": st.session_state.get("provedor", ""),
+                            "perfil_usuario": st.session_state.get("perfil_usuario", ""),
+                            "input_tokens": _input_tok,
+                            "output_tokens": _output_tok,
+                            "total_tokens": _total_tok,
+                            "tempo_resposta_seg": _tempo_resposta,
+                            "tokens_acumulados_sessao": st.session_state.get("tokens_sessao", 0),
+                            "n_mensagens_sessao": st.session_state.get("n_mensagens_sessao", 0),
+                        }
+                        import threading as _threading
+                        _threading.Thread(target=_salvar_log_tokens, args=(_registro_tok,), daemon=True).start()
 
                 else:
                     perfil = st.session_state.get("perfil_usuario")
@@ -1651,8 +1710,34 @@ def pagina_chat():
                         f"perguntar ao revendedor FleetPro mais próximo.\n\n"
                         f"Pergunta: {input_usuario}"
                     )
-                    resposta_stream = st.write_stream(chat_model.stream(prompt))
-                    resposta = resposta_stream
+                    import time as _time
+                    _t0 = _time.time()
+                    _response = chat_model.invoke(prompt)
+                    _tempo_resposta = round(_time.time() - _t0, 2)
+                    resposta = _response.content
+                    st.markdown(resposta)
+                    _uso = getattr(_response, "usage_metadata", {}) or {}
+                    _input_tok  = _uso.get("input_tokens", 0)
+                    _output_tok = _uso.get("output_tokens", 0)
+                    _total_tok  = _uso.get("total_tokens", _input_tok + _output_tok)
+                    st.session_state["tokens_sessao"] = st.session_state.get("tokens_sessao", 0) + _total_tok
+                    st.session_state["n_mensagens_sessao"] = st.session_state.get("n_mensagens_sessao", 0) + 1
+                    _registro_tok = {
+                        "session_id": st.session_state.get("session_id", ""),
+                        "timestamp_inicio_sessao": st.session_state.get("session_inicio", ""),
+                        "timestamp_resposta": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "modelo": st.session_state.get("modelo", ""),
+                        "provedor": st.session_state.get("provedor", ""),
+                        "perfil_usuario": st.session_state.get("perfil_usuario", ""),
+                        "input_tokens": _input_tok,
+                        "output_tokens": _output_tok,
+                        "total_tokens": _total_tok,
+                        "tempo_resposta_seg": _tempo_resposta,
+                        "tokens_acumulados_sessao": st.session_state.get("tokens_sessao", 0),
+                        "n_mensagens_sessao": st.session_state.get("n_mensagens_sessao", 0),
+                    }
+                    import threading as _threading
+                    _threading.Thread(target=_salvar_log_tokens, args=(_registro_tok,), daemon=True).start()
 
             else:
                 if resultado_matriz:
@@ -1857,6 +1942,75 @@ def _salvar_erro_github(registro: dict):
 
     sha, conteudo_atual = _fetch()
     _put(sha, _montar_conteudo(conteudo_atual))
+
+
+# ======================
+# Log de Tokens
+# ======================
+def _salvar_log_tokens(registro: dict):
+    """Commita uso_tokens.csv no repositório GitHub via API (background thread)."""
+    import base64, json, csv, io, urllib.request, urllib.error
+
+    token = st.secrets.get("GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", ""))
+    if not token:
+        return  # sem token, silencioso — não bloquear a UI
+
+    owner = "Antoniopneto9"
+    repo  = "Agente_FleetPro-1"
+    path  = "uso_tokens.csv"
+    api   = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    gh_headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+    }
+
+    def _fetch():
+        req = urllib.request.Request(api + "?ref=main", headers=gh_headers)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+                sha = data["sha"]
+                content_b64 = data["content"].replace("\n", "")
+                return sha, base64.b64decode(content_b64).decode("utf-8")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None, ""
+            raise
+
+    def _montar_conteudo(conteudo_atual):
+        campos = list(registro.keys())
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=campos, quoting=csv.QUOTE_ALL)
+        writer.writeheader()
+        if conteudo_atual.strip():
+            reader = csv.DictReader(io.StringIO(conteudo_atual))
+            for row in reader:
+                linha = {k: row.get(k, "") for k in campos}
+                writer.writerow(linha)
+        writer.writerow(registro)
+        return buf.getvalue()
+
+    def _put(sha, novo_conteudo):
+        payload = {
+            "message": f"log tokens: {registro.get('timestamp_resposta', '')[:10]}",
+            "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
+            "branch": "main",
+        }
+        if sha:
+            payload["sha"] = sha
+        req = urllib.request.Request(api, data=json.dumps(payload).encode(), headers=gh_headers, method="PUT")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                resp.read()
+        except urllib.error.HTTPError:
+            pass  # silencioso em background
+
+    try:
+        sha, conteudo_atual = _fetch()
+        _put(sha, _montar_conteudo(conteudo_atual))
+    except Exception:
+        pass  # nunca deixar o background thread crashar a UI
 
 
 # ======================
