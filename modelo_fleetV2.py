@@ -51,6 +51,9 @@ class ConversationBufferMemory:
         self._msgs = []
         self.chat_memory = self
 
+    def clear(self):
+        self._msgs = []
+
     def add_user_message(self, m):
         self._msgs.append(("human", m))
 
