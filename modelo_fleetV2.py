@@ -641,21 +641,46 @@ def _detectar_filtro_arquivo(query: str) -> list:
     return []
 
 
-def buscar_no_rag(vectorstore, query: str, k: int = 3):
+def buscar_no_rag(vectorstore, query: str, k: int = 5):
     """
     Retorna (contexto_str, lista_de_fontes).
-    Detecta siglas na query e filtra por nome de arquivo quando possível.
-    k=3 para caber no limite de tokens do Groq free (12k TPM).
+    Usa busca híbrida (BM25 + semântica + reranker) quando disponível,
+    com fallback transparente para busca semântica simples.
+    k aumentado para 5 para capturar mais contexto relevante.
     """
     if vectorstore is None:
         return "", []
 
     try:
-        # Busca semântica padrão
+        # Tenta busca híbrida com reranker
+        try:
+            import sys, os as _os
+            _src_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "src")
+            if _src_path not in sys.path:
+                sys.path.insert(0, _src_path)
+            from retriever import hybrid_search
+            resultados_hibridos = hybrid_search(query, vectorstore, k=k)
+            if resultados_hibridos:
+                trechos = []
+                fontes = []
+                labels_vistos = set()
+                for i, doc in enumerate(resultados_hibridos, 1):
+                    source = doc.get("source", "documento")
+                    nome = _os.path.splitext(_os.path.basename(source))[0] if source else "documento"
+                    label = f"📄 {nome} [score: {doc['score']:.2f}]"
+                    trecho_texto = doc["content"].strip()[:600]
+                    trechos.append(f"[Trecho {i} – {label}]\n{trecho_texto}")
+                    if label not in labels_vistos:
+                        labels_vistos.add(label)
+                        fontes.append({"label": label, "path": source, "tipo": "rag"})
+                return "\n\n".join(trechos), fontes
+        except Exception:
+            pass  # fallback para busca semântica simples abaixo
+
+        # Fallback: busca semântica simples (comportamento original)
         resultados = vectorstore.similarity_search(query, k=k)
 
-        # ── Filtro por sigla: se query menciona VV, TEEJET etc,
-        #    busca mais resultados e filtra pelos que batem no nome do arquivo ──
+        # ── Filtro por sigla: se query menciona VV, TEEJET etc ──
         filtros = _detectar_filtro_arquivo(query)
         if filtros:
             candidatos = vectorstore.similarity_search(query, k=20)
@@ -668,7 +693,6 @@ def buscar_no_rag(vectorstore, query: str, k: int = 3):
                 )
             ]
             if filtrados:
-                # Usa os filtrados (até k) + completa com semântica se necessário
                 resultados = filtrados[:k]
                 if len(resultados) < k:
                     for doc in candidatos:
@@ -687,18 +711,15 @@ def buscar_no_rag(vectorstore, query: str, k: int = 3):
         for i, doc in enumerate(resultados, 1):
             fonte = doc.metadata.get("source", "documento")
             tipo = doc.metadata.get("tipo", "")
-            slide = doc.metadata.get("slide", None)
-
             nome = doc.metadata.get("nome_arquivo", os.path.splitext(os.path.basename(fonte))[0])
             pasta = doc.metadata.get("pasta", "")
             label = "📄 " + nome + (" [" + pasta + "]" if pasta else "")
-            fonte_url = fonte
 
             trecho_texto = doc.page_content.strip()[:600]
             trechos.append("[Trecho " + str(i) + " – " + label + "]\n" + trecho_texto)
             if label not in labels_vistos:
                 labels_vistos.add(label)
-                fontes.append({"label": label, "path": fonte_url, "tipo": tipo})
+                fontes.append({"label": label, "path": fonte, "tipo": tipo})
 
         return "\n\n".join(trechos), fontes
     except Exception as e:
@@ -1596,6 +1617,26 @@ def pagina_chat():
             usar_rag = st.session_state.get("usar_rag", True)
             max_resultados = st.session_state.get("max_resultados_fp", 50)
 
+            # ── Intent + Entity extraction ─────────────────────────────────────
+            try:
+                import sys as _sys
+                _src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+                if _src_path not in _sys.path:
+                    _sys.path.insert(0, _src_path)
+                from intent_classifier import classify_intent
+                from entity_extractor import extract_entities, _normalizar_sinonimos
+                _intent_result = classify_intent(input_usuario)
+                _intent = _intent_result["intent"]
+                _intent_conf = _intent_result["confidence"]
+                _entities = extract_entities(input_usuario)
+                # Normaliza sinônimos na query para melhorar buscas downstream
+                input_normalizado = _normalizar_sinonimos(input_usuario)
+            except Exception:
+                _intent = "PRODUCT_LOOKUP"
+                _intent_conf = 0.5
+                _entities = {}
+                input_normalizado = input_usuario
+
             # ── 1. Lookup no Excel ────────────────────────────────────────────
             fontes_rag = []
             resultado_matriz = ""
@@ -1614,34 +1655,33 @@ def pagina_chat():
                 if _detectar_pergunta_contagem(input_usuario):
                     resultado_matriz = f"O portfólio FleetPro possui **{len(df_fp)} itens** cadastrados na Matriz FP."
 
-                tt_code = detectar_tt_code(input_usuario)
-                colunas_equip = detectar_busca_por_equipamento(input_usuario)
-                termo_marketing = detectar_busca_marketing(input_usuario)
+                # Usa query normalizada (sinônimos expandidos) para melhorar detecções
+                tt_code = detectar_tt_code(input_normalizado)
+                colunas_equip = detectar_busca_por_equipamento(input_normalizado)
+                termo_marketing = detectar_busca_marketing(input_normalizado)
 
-                if _detectar_pergunta_contagem(input_usuario):
+                if _detectar_pergunta_contagem(input_normalizado):
                     pass  # já tratado acima
                 elif tt_code:
                     # Busca por TT code
                     resultado_matriz = buscar_por_tt_code(df_fp, tt_code, max_resultados)
                 elif colunas_equip and termo_marketing:
                     # ── Busca combinada: equipamento + categoria ──────────────
-                    # Ex: "rolamento para trator case" → filtra CASE IH + ROLAMENTOS
                     resultado_matriz = buscar_equip_e_marketing(
-                        df_fp, input_usuario, colunas_equip, termo_marketing, max_resultados
+                        df_fp, input_normalizado, colunas_equip, termo_marketing, max_resultados
                     )
                 elif colunas_equip:
                     # Busca por fabricante / tipo de máquina
-                    resultado_matriz = buscar_por_equipamento(df_fp, input_usuario, colunas_equip, max_resultados)
+                    resultado_matriz = buscar_por_equipamento(df_fp, input_normalizado, colunas_equip, max_resultados)
                 elif termo_marketing:
                     # Busca por categoria de produto na coluna MARKETING PROJECT
-                    resultado_matriz = buscar_por_marketing(df_fp, termo_marketing, input_usuario, max_resultados)
+                    resultado_matriz = buscar_por_marketing(df_fp, termo_marketing, input_normalizado, max_resultados)
                 else:
-                    resultado_matriz = procurar_pn(df_fp, input_usuario, max_resultados)
+                    resultado_matriz = procurar_pn(df_fp, input_normalizado, max_resultados)
 
                 # ── Fallback: busca por texto livre na coluna DESCRIPTION ──────
-                # Ativado quando nenhuma busca retornou resultado útil
                 if not resultado_matriz or resultado_matriz.startswith("Não encontrei") or resultado_matriz.startswith("PN não encontrado"):
-                    resultado_descricao = buscar_por_description(df_fp, input_usuario, max_resultados)
+                    resultado_descricao = buscar_por_description(df_fp, input_normalizado, max_resultados)
                     if resultado_descricao:
                         resultado_matriz = resultado_descricao
 
@@ -1651,7 +1691,7 @@ def pagina_chat():
             if usar_rag and chat_model is not None and not st.session_state.get("_rag_indisponivel"):
                 try:
                     vs = obter_vectorstore()
-                    contexto_rag, fontes_rag = buscar_no_rag(vs, input_usuario)
+                    contexto_rag, fontes_rag = buscar_no_rag(vs, input_normalizado)
                 except Exception:
                     contexto_rag = ""
                     fontes_rag = []
@@ -1703,6 +1743,20 @@ def pagina_chat():
                     contexto_completo = "\n\n---\n\n".join(blocos)
                     perfil = st.session_state.get("perfil_usuario")
 
+                    # Monta histórico das últimas 4 trocas para injetar no prompt
+                    def _montar_historico(memoria_obj, max_trocas: int = 4) -> str:
+                        msgs = memoria_obj.buffer_as_messages
+                        # Pegar apenas as últimas max_trocas*2 mensagens (excluindo a atual)
+                        ultimas = msgs[-(max_trocas * 2):-1] if len(msgs) > 1 else []
+                        if not ultimas:
+                            return ""
+                        linhas = []
+                        for m in ultimas:
+                            role = "Usuário" if m.type == "human" else "Assistente"
+                            conteudo = m.content[:300] + "..." if len(m.content) > 300 else m.content
+                            linhas.append(f"{role}: {conteudo}")
+                        return "\n".join(linhas)
+
                     if perfil is None:
                         st.session_state["pergunta_pendente"] = input_usuario
                         st.session_state["contexto_pendente"] = contexto_completo
@@ -1740,6 +1794,11 @@ def pagina_chat():
                             st.session_state["memoria"] = memoria
                             st.stop()
 
+                        _historico_str = _montar_historico(memoria)
+                        _historico_bloco = (
+                            f"HISTÓRICO RECENTE DA CONVERSA:\n{_historico_str}\n\n"
+                            if _historico_str else ""
+                        )
                         prompt = (
                             f"Você é o FleetPro Expert, um assistente de vendas especializado em apoiar vendedores de balcão "
                             f"na comercialização de peças de reposição FleetPro para máquinas agrícolas.\n\n"
@@ -1754,6 +1813,7 @@ def pagina_chat():
                             f"- Técnico quando necessário, mas sempre em linguagem acessível\n"
                             f"- Forneça argumentos prontos que o vendedor pode usar na hora\n"
                             f"- Se houver objeção de preço ou qualidade, sugira como rebater\n\n"
+                            f"{_historico_bloco}"
                             f"O vendedor perguntou: **{input_usuario}**\n\n"
                             f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n\n"
                             f"INSTRUÇÕES CRÍTICAS — SIGA RIGOROSAMENTE:\n"
@@ -1794,6 +1854,11 @@ def pagina_chat():
                         _threading.Thread(target=_salvar_log_tokens, args=(_registro_tok,), daemon=True).start()
 
                     elif perfil == "usuario":
+                        _historico_str = _montar_historico(memoria)
+                        _historico_bloco = (
+                            f"HISTÓRICO RECENTE DA CONVERSA:\n{_historico_str}\n\n"
+                            if _historico_str else ""
+                        )
                         prompt = (
                             f"Você é o FleetPro Expert, um consultor especialista em peças de reposição para máquinas agrícolas.\n\n"
                             f"Você está falando DIRETAMENTE com o agricultor ou operador da máquina. Seu objetivo é:\n"
@@ -1807,6 +1872,7 @@ def pagina_chat():
                             f"- Valorize a economia e a produtividade que o FleetPro proporciona\n"
                             f"- Use exemplos práticos do dia a dia do campo quando possível\n"
                             f"- Finalize sempre incentivando a buscar o FleetPro no revendedor mais próximo\n\n"
+                            f"{_historico_bloco}"
                             f"O usuário perguntou: **{input_usuario}**\n\n"
                             f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n\n"
                             f"INSTRUÇÕES CRÍTICAS — SIGA RIGOROSAMENTE:\n"
