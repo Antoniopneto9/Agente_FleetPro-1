@@ -1389,11 +1389,27 @@ def inicializar_FleetPro(provedor: str, modelo: str, api_key: str):
     st.session_state.setdefault("memoria", ConversationBufferMemory())
 
     if "session_id" not in st.session_state:
-        import uuid, datetime as _dt
+        import uuid, datetime as _dt, threading
         st.session_state["session_id"] = str(uuid.uuid4())[:8]
         st.session_state["session_inicio"] = _dt.datetime.now().isoformat()
         st.session_state["tokens_sessao"] = 0
         st.session_state["n_mensagens_sessao"] = 0
+
+        # Captura IP via header do Streamlit (disponível no Streamlit Cloud)
+        try:
+            _ip = st.context.headers.get("X-Forwarded-For", "desconhecido").split(",")[0].strip()
+        except Exception:
+            _ip = "desconhecido"
+
+        _registro_acesso = {
+            "session_id": st.session_state["session_id"],
+            "timestamp": st.session_state["session_inicio"],
+            "ip": _ip,
+            "perfil": st.session_state.get("perfil_usuario", "nao_definido"),
+            "modelo": modelo,
+            "provedor": provedor,
+        }
+        threading.Thread(target=_salvar_log_acesso, args=(_registro_acesso,), daemon=True).start()
 
     resetar_vectorstore()
     with st.spinner("Indexando documentos..."):
@@ -2166,6 +2182,75 @@ def _salvar_log_tokens(registro: dict):
         _put(sha, _montar_conteudo(conteudo_atual))
     except Exception:
         pass  # nunca deixar o background thread crashar a UI
+
+
+# ======================
+# Log de Acessos
+# ======================
+def _salvar_log_acesso(registro: dict):
+    """Commita acessos_log.csv no repositório GitHub via API (background thread)."""
+    import base64, json, csv, io, urllib.request, urllib.error
+
+    token = st.secrets.get("GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", ""))
+    if not token:
+        return
+
+    owner = "Antoniopneto9"
+    repo  = "Agente_FleetPro-1"
+    path  = "acessos_log.csv"
+    api   = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    gh_headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+    }
+
+    def _fetch():
+        req = urllib.request.Request(api + "?ref=prod", headers=gh_headers)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+                sha = data["sha"]
+                content_b64 = data["content"].replace("\n", "")
+                return sha, base64.b64decode(content_b64).decode("utf-8")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None, ""
+            raise
+
+    def _montar_conteudo(conteudo_atual):
+        campos = list(registro.keys())
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=campos, quoting=csv.QUOTE_ALL)
+        writer.writeheader()
+        if conteudo_atual.strip():
+            reader = csv.DictReader(io.StringIO(conteudo_atual))
+            for row in reader:
+                linha = {k: row.get(k, "") for k in campos}
+                writer.writerow(linha)
+        writer.writerow(registro)
+        return buf.getvalue()
+
+    def _put(sha, novo_conteudo):
+        payload = {
+            "message": f"acesso: {registro.get('timestamp', '')[:10]}",
+            "content": base64.b64encode(novo_conteudo.encode("utf-8")).decode("utf-8"),
+            "branch": "prod",
+        }
+        if sha:
+            payload["sha"] = sha
+        req = urllib.request.Request(api, data=json.dumps(payload).encode(), headers=gh_headers, method="PUT")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                resp.read()
+        except urllib.error.HTTPError:
+            pass
+
+    try:
+        sha, conteudo_atual = _fetch()
+        _put(sha, _montar_conteudo(conteudo_atual))
+    except Exception:
+        pass
 
 
 # ======================
