@@ -2111,9 +2111,11 @@ def sidebar():
             df_r = df_r[mask_pn]
 
         # Salva para pagina_catalogo renderizar no main frame
+        filtro_ativo = bool(cat_sel or (marca_sel != "(todas)") or (tipo_sel != "(todos)") or pn_sel)
         st.session_state["_filtro_df"] = df_r
-        st.session_state["_filtro_ativo"] = bool(cat_sel or equip_sel or pn_sel)
-        st.caption(f"{len(df_r)} resultado(s)" if (cat_sel or equip_sel or pn_sel) else "")
+        st.session_state["_filtro_ativo"] = filtro_ativo
+        if filtro_ativo:
+            st.caption(f"{len(df_r)} resultado(s)")
 
     except Exception as e:
         st.caption(f"Filtro indisponível: {e}")
@@ -2375,47 +2377,57 @@ def popup_feedback():
                         st.error(f"Erro ao salvar: {e}")
 
 
-def pagina_catalogo():
-    """Exibe resultado dos filtros da sidebar no main frame."""
+_COLS_CATALOGO = ["description", "pn_fleetpro", "pn_gen", "marketing_project",
+                  "tractor_case_ih", "combine_case_ih", "tractor_nhag", "combine_nhag"]
+_RENAME_CATALOGO = {
+    "description": "Descrição", "pn_fleetpro": "PN FleetPro", "pn_gen": "PN Genuíno",
+    "marketing_project": "Categoria", "tractor_case_ih": "Trator CaseIH",
+    "combine_case_ih": "Colh. CaseIH", "tractor_nhag": "Trator NH", "combine_nhag": "Colh. NH",
+}
+
+def _df_para_exibir(df_r):
+    cols = [c for c in _COLS_CATALOGO if c in df_r.columns]
+    return df_r[cols].reset_index(drop=True).rename(
+        columns={k: v for k, v in _RENAME_CATALOGO.items() if k in df_r.columns}
+    )
+
+
+def pagina_chat_com_preview():
+    """Tela principal: chat + preview de 7 linhas do catálogo abaixo."""
+    pagina_chat()
+
     df_r = st.session_state.get("_filtro_df")
     ativo = st.session_state.get("_filtro_ativo", False)
 
-    if not ativo or df_r is None:
-        st.info("Use os filtros na sidebar para navegar pelo catálogo de peças FleetPro.")
+    if ativo and df_r is not None:
+        st.divider()
+        total = len(df_r)
+        st.caption(f"**Catálogo — {total} produto(s)** filtrado(s). Exibindo prévia:")
+        if df_r.empty:
+            st.warning("Nenhum produto com esses filtros.")
+        else:
+            st.dataframe(_df_para_exibir(df_r).head(7), use_container_width=True, hide_index=True)
+            if total > 7:
+                if st.button("📋 Ver tabela completa", type="secondary", use_container_width=True):
+                    st.session_state["_pagina"] = "catalogo"
+                    st.rerun()
+
+
+def pagina_catalogo():
+    """Tela de catálogo completo — volta ao chat sem perder sessão."""
+    if st.button("← Voltar ao chat", key="btn_voltar_chat"):
+        st.session_state["_pagina"] = "chat"
+        st.rerun()
+
+    df_r = st.session_state.get("_filtro_df")
+    if df_r is None or df_r.empty:
+        st.info("Sem resultados. Aplique filtros na sidebar.")
         return
 
     total = len(df_r)
-    st.caption(f"**{total}** produto(s) encontrado(s){' — exibindo primeiros 500' if total > 500 else ''}")
-
-    if df_r.empty:
-        st.warning("Nenhum produto encontrado com os filtros selecionados.")
-        return
-
-    # Colunas relevantes para exibição
-    _COLS = [
-        "description", "pn_fleetpro", "pn_gen", "marketing_project",
-        "tractor_case_ih", "combine_case_ih", "tractor_nhag", "combine_nhag",
-        "modal", "launched_month",
-    ]
-    cols_show = [c for c in _COLS if c in df_r.columns]
-    df_show = df_r[cols_show].head(500).reset_index(drop=True)
-
-    # Renomeia colunas para exibição
-    rename = {
-        "description": "Descrição",
-        "pn_fleetpro": "PN FleetPro",
-        "pn_gen": "PN Genuíno",
-        "marketing_project": "Categoria",
-        "tractor_case_ih": "Trator Case IH",
-        "combine_case_ih": "Colheit. Case IH",
-        "tractor_nhag": "Trator NH",
-        "combine_nhag": "Colheit. NH",
-        "modal": "Modal",
-        "launched_month": "Lançamento",
-    }
-    df_show = df_show.rename(columns={k: v for k, v in rename.items() if k in df_show.columns})
-
-    st.dataframe(df_show, use_container_width=True, height=600)
+    st.caption(f"**{total}** produto(s){' — exibindo primeiros 500' if total > 500 else ''}")
+    st.dataframe(_df_para_exibir(df_r).head(500), use_container_width=True,
+                 hide_index=True, height=650)
 
 
 # ======================
@@ -2426,11 +2438,11 @@ def main():
         sidebar()
         popup_feedback()
 
-    col_chat, col_cat = st.columns([1, 1], gap="medium")
-    with col_chat:
-        pagina_chat()
-    with col_cat:
+    pagina = st.session_state.get("_pagina", "chat")
+    if pagina == "catalogo":
         pagina_catalogo()
+    else:
+        pagina_chat_com_preview()
 
 
 if __name__ == "__main__":
