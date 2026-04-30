@@ -1492,11 +1492,8 @@ def _eh_busca_simples(mensagem: str) -> bool:
 # UI – Chat principal
 # ======================
 def pagina_chat():
-    col_logo, col_titulo = st.columns([1, 6])
-    with col_logo:
-        st.image("base_docs/fleetpro_logo.png", width=120)
-    with col_titulo:
-        st.header("🕵️‍♂️ FleetPro Expert 🛠️", divider=True)
+    st.image("base_docs/fleetpro_logo.png", width=150)
+    st.divider()
 
     chat_model = st.session_state.get("chat")
     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
@@ -1969,20 +1966,17 @@ def pagina_chat():
 # UI – Barra lateral
 # ======================
 def sidebar():
-    st.title("⚙️ Configurações")
     st.image("base_docs/cnh_logo.png", width=180)
 
-    # ── Seção 1: Modelo de linguagem (LLM) ──────────────────────────────────
-    with st.expander("🤖 Modelo de Linguagem (LLM)", expanded=True):
-        st.caption(
-            "O LLM combina os resultados da busca no Excel com o conhecimento dos documentos "
-            "e gera uma resposta enriquecida. Se não inicializado, o app retorna apenas os dados brutos da matriz."
-        )
+    # Busca sempre ativa na planilha inteira e RAG sempre ligado
+    st.session_state["usar_fp_matriz"] = True
+    st.session_state["usar_rag"] = True
+    st.session_state["max_resultados_fp"] = 99999  # planilha inteira
 
+    with st.expander("⚙️ Configurações", expanded=False):
         provedor = st.selectbox("Provedor", list(CONFIG_MODELOS.keys()), key="sel_provedor")
         modelo = st.selectbox("Modelo", CONFIG_MODELOS[provedor]["modelos"], key="sel_modelo")
 
-        # Lê cookie salvo para pré-preencher o campo
         _cookie_key = f"fp_apikey_{provedor.lower()}"
         _saved_key = ""
         if _COOKIES_OK:
@@ -2002,9 +1996,8 @@ def sidebar():
         if provedor == "OpenAI" and api_key:
             st.session_state["api_key_openai_rag"] = api_key
 
-        if st.button("🚀 Inicializar FleetPro_Expert", use_container_width=True):
+        if st.button("🚀 Inicializar", use_container_width=True):
             inicializar_FleetPro(provedor, modelo, api_key)
-            # Salva a key no cookie (expira em 30 dias)
             if _COOKIES_OK and api_key:
                 try:
                     _cookie_manager.set(_cookie_key, api_key, max_age=60*60*24*30)
@@ -2014,74 +2007,20 @@ def sidebar():
         st.divider()
         chat = st.session_state.get("chat")
         if chat:
-            st.success(
-                f"✅ Ativo: {st.session_state.get('provedor')} / {st.session_state.get('modelo')}"
-            )
+            st.success(f"✅ {st.session_state.get('provedor')} / {st.session_state.get('modelo')}")
         else:
-            st.warning("⚠️ Nenhum modelo inicializado. O chat usará apenas o lookup direto.")
-
-    # ── Seção 2: FP MATRIZ ───────────────────────────────────────────────────
-    with st.expander("📊 Lookup FP MATRIZ (Excel)", expanded=False):
-        usar_fp_matriz = st.toggle(
-            "Buscar PN na Matriz FP",
-            value=st.session_state.get("usar_fp_matriz", True),
-        )
-        st.session_state["usar_fp_matriz"] = usar_fp_matriz
-
-        max_resultados_fp = st.slider(
-            "Máximo de resultados retornados",
-            min_value=5, max_value=200,
-            value=st.session_state.get("max_resultados_fp", 50),
-        )
-        st.session_state["max_resultados_fp"] = max_resultados_fp
-
-        st.caption(
-            "A busca normaliza o PN (remove espaços, hífens e pontos; maiúsculo) "
-            "e compara com PN GEN, PN ALTERNATIVE, PN NXP e PN FLEETPRO."
-        )
-
-    # ── Seção 3: RAG / Documentos de conhecimento ────────────────────────────
-    with st.expander("📂 Documentos de Conhecimento (RAG)", expanded=False):
-        st.info(
-            "Coloque seus documentos (.pdf, .txt, .csv, .pptx, .md, .docx) na pasta `base_docs/` ou em subpastas. O sistema indexa automaticamente todos os arquivos e subpastas. "
-            "O sistema irá indexá-los e usará o conteúdo para ajudar com objeções, "
-            "recomendações e dúvidas técnicas."
-        )
-
-        usar_rag = st.toggle(
-            "Usar documentos de conhecimento no chat",
-            value=st.session_state.get("usar_rag", True),
-        )
-        st.session_state["usar_rag"] = usar_rag
+            st.warning("⚠️ Nenhum modelo inicializado.")
 
         if st.session_state.get("_rag_indisponivel"):
-            st.warning("⚠️ RAG indisponível — modelo de embeddings não pôde ser carregado (sem acesso à internet ou rede bloqueada). O app está rodando **sem RAG**, usando apenas a Matriz FP.")
-        else:
-            st.caption("✅ Embeddings gratuitos (HuggingFace) — sem necessidade de API key.")
+            st.warning("⚠️ RAG indisponível (rede bloqueada).")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Reindexar", use_container_width=True):
-                try:
-                    resetar_vectorstore()
-                    vs = obter_vectorstore()
-                    if vs:
-                        st.success("Indexado com sucesso!")
-                    else:
-                        st.warning("Nenhum documento encontrado.")
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-
-        with col2:
-            if st.button("📋 Ver docs", use_container_width=True):
-                arquivos = _listar_arquivos_rag(BASE_DOCS_DIR)
-                if arquivos:
-                    st.success(f"{len(arquivos)} arquivo(s) encontrado(s):")
-                    for a in arquivos:
-                        rel = os.path.relpath(a, BASE_DOCS_DIR)
-                        st.caption(f"• {rel}")
-                else:
-                    st.warning("Nenhum documento local encontrado.")
+        if st.button("🔄 Reindexar RAG", use_container_width=True):
+            try:
+                resetar_vectorstore()
+                vs = obter_vectorstore()
+                st.success("Indexado!" if vs else "Nenhum documento encontrado.")
+            except Exception as e:
+                st.error(f"Erro: {e}")
 
 
 
