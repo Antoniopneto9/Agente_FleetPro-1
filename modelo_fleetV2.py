@@ -1291,14 +1291,16 @@ def buscar_por_description(df: "pd.DataFrame", mensagem: str, max_resultados: in
     }
 
     # Mapeamento de sinônimos: variação do usuário → termo na base
+    # Inclui "silo bolsa" (forma canônica após entity_extractor normalizar "silobag")
     _SINONIMOS = {
         "SILOBOLSA": "SILOBAG",
         "SILO BOLSA": "SILOBAG",
+        "SILO BAG": "SILOBAG",
         "BOLSA SILO": "SILOBAG",
         "BOLSA": "SILOBAG",
     }
 
-    # Normaliza a mensagem aplicando sinônimos antes de tokenizar
+    # Normaliza a mensagem aplicando sinônimos multi-palavra antes de tokenizar
     msg_norm = norm(mensagem)
     for variacao, substituto in _SINONIMOS.items():
         msg_norm = msg_norm.replace(norm(variacao), substituto)
@@ -1452,12 +1454,26 @@ _VERBOS_ARGUMENTACAO = {
     "comparar", "versus", "melhor", "recomend", "indicar", "sugerir",
 }
 
+_RESPOSTAS_CONTINUACAO = {
+    "sim", "não", "nao", "ok", "yes", "no", "claro", "pode", "quero",
+    "gostaria", "por favor", "porfavor", "confirmo", "certo", "exato",
+    "isso", "esse", "aquele", "conte mais", "me diga", "continua",
+}
+
+def _eh_resposta_continuacao(mensagem: str) -> bool:
+    """Detecta respostas curtas de continuação que referenciam turno anterior."""
+    msg_lower = mensagem.lower().strip().rstrip(".")
+    return msg_lower in _RESPOSTAS_CONTINUACAO or len(msg_lower.split()) <= 2 and msg_lower in _RESPOSTAS_CONTINUACAO
+
 def _eh_busca_simples(mensagem: str) -> bool:
     """
     Retorna True se a mensagem é uma busca direta por produto/PN,
     sem intenção de receber argumentação ou análise do LLM.
     """
     msg_lower = mensagem.lower().strip()
+    # Respostas de continuação → sempre vai pro LLM com histórico
+    if _eh_resposta_continuacao(msg_lower):
+        return False
     # Se contém verbo de argumentação, não é busca simples
     for verbo in _VERBOS_ARGUMENTACAO:
         if verbo in msg_lower:
@@ -1553,30 +1569,9 @@ def pagina_chat():
             ).start()
             st.rerun()
 
-    # ── Botões de perfil (exibe apenas enquanto perfil não definido) ──────
+    # Perfil fixo: sempre vendedor
     if st.session_state.get("perfil_usuario") is None:
-        st.caption("Quem é você?")
-        col_v, col_c, _ = st.columns([1, 1, 4])
-        with col_v:
-            if st.button("🧑‍💼 Vendedor", use_container_width=True, key="btn_perfil_vendedor"):
-                st.session_state["perfil_usuario"] = "vendedor"
-                resposta = "✅ Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta!"
-                st.chat_message("human").markdown("Vendedor")
-                st.chat_message("ai").markdown(resposta)
-                memoria.chat_memory.add_user_message("Vendedor")
-                memoria.chat_memory.add_ai_message(resposta)
-                st.session_state["memoria"] = memoria
-                st.rerun()
-        with col_c:
-            if st.button("🌾 Cliente", use_container_width=True, key="btn_perfil_cliente"):
-                st.session_state["perfil_usuario"] = "usuario"
-                resposta = "✅ Modo **Cliente / Usuário da Peça** ativado. Pode fazer sua pergunta!"
-                st.chat_message("human").markdown("Cliente")
-                st.chat_message("ai").markdown(resposta)
-                memoria.chat_memory.add_user_message("Cliente")
-                memoria.chat_memory.add_ai_message(resposta)
-                st.session_state["memoria"] = memoria
-                st.rerun()
+        st.session_state["perfil_usuario"] = "vendedor"
 
     input_usuario = st.chat_input(
         "Digite um PN para busca, ou uma pergunta sobre produtos, objeções e recomendações..."
@@ -1584,30 +1579,6 @@ def pagina_chat():
 
     if not input_usuario:
         return
-
-    # ── Captura escolha de perfil via texto (fallback) ────────────────────
-    if st.session_state.get("perfil_usuario") is None:
-        resposta_lower = input_usuario.lower().strip()
-        if any(p in resposta_lower for p in ["1", "vendedor", "vendo", "balcão", "balcao", "revend"]):
-            st.session_state["perfil_usuario"] = "vendedor"
-            st.chat_message("human").markdown(input_usuario)
-            with st.chat_message("ai"):
-                resposta = "✅ Perfeito! Modo **Vendedor de Balcão** ativado. Pode fazer sua pergunta!"
-                st.markdown(resposta)
-            memoria.chat_memory.add_user_message(input_usuario)
-            memoria.chat_memory.add_ai_message(resposta)
-            st.session_state["memoria"] = memoria
-            st.stop()
-        elif any(p in resposta_lower for p in ["2", "usuario", "usuário", "uso", "minha máquina", "minha maquina", "agricultor", "operador", "cliente"]):
-            st.session_state["perfil_usuario"] = "usuario"
-            st.chat_message("human").markdown(input_usuario)
-            with st.chat_message("ai"):
-                resposta = "✅ Perfeito! Modo **Cliente / Usuário da Peça** ativado. Pode fazer sua pergunta!"
-                st.markdown(resposta)
-            memoria.chat_memory.add_user_message(input_usuario)
-            memoria.chat_memory.add_ai_message(resposta)
-            st.session_state["memoria"] = memoria
-            st.stop()
 
     st.chat_message("human").markdown(input_usuario)
 
@@ -1703,7 +1674,8 @@ def pagina_chat():
 
             elif chat_model is not None:
                 # Bloqueia LLM se não há nenhum dado — evita alucinação
-                if not resultado_matriz and not contexto_rag:
+                # Exceção: respostas de continuação ("sim", "não") usam histórico como contexto
+                if not resultado_matriz and not contexto_rag and not _eh_resposta_continuacao(input_usuario):
                     resposta = "Não encontrei informações sobre isso na base FleetPro. Tente buscar por PN, categoria de produto ou equipamento."
                     st.markdown(resposta)
                     memoria.chat_memory.add_user_message(input_usuario)
@@ -1757,37 +1729,25 @@ def pagina_chat():
                             linhas.append(f"{role}: {conteudo}")
                         return "\n".join(linhas)
 
-                    if perfil is None:
-                        st.session_state["pergunta_pendente"] = input_usuario
-                        st.session_state["contexto_pendente"] = contexto_completo
-                        resposta = (
-                            "Antes de responder, preciso entender melhor como posso te ajudar! 😊\n\n"
-                            "**Você é:**\n"
-                            "- **1️⃣ Vendedor** — quero argumentos para atender meu cliente no balcão\n"
-                            "- **2️⃣ Usuário da peça** — quero saber se o FleetPro é a melhor opção para minha máquina\n\n"
-                            "_Digite o número ou o nome da opção._"
-                        )
-                        st.markdown(resposta)
-                        memoria.chat_memory.add_user_message(input_usuario)
-                        memoria.chat_memory.add_ai_message(resposta)
-                        st.session_state["memoria"] = memoria
-                        st.stop()
-
-                    elif perfil == "vendedor":
+                    if perfil == "vendedor":
                         # ── Busca simples: mostra peças + botão de argumentação ──
                         if _eh_busca_simples(input_usuario) and resultado_matriz:
                             resposta = resultado_matriz
                             st.markdown(resposta)
+                            # Salva contexto antes de renderizar o botão — garante que
+                            # o click sempre tenha acesso ao estado correto
+                            _btn_key = f"btn_arg_{abs(hash(input_usuario))}"
+                            st.session_state["_ultimo_contexto_arg"] = {
+                                "input_usuario": input_usuario,
+                                "resultado_matriz": resultado_matriz,
+                                "contexto_rag": contexto_rag,
+                            }
                             if st.button(
                                 "💬 Ver argumentação de venda",
-                                key=f"btn_arg_{hash(input_usuario)}",
+                                key=_btn_key,
                                 type="secondary",
                             ):
-                                st.session_state["_argumentacao_pendente"] = {
-                                    "input_usuario": input_usuario,
-                                    "resultado_matriz": resultado_matriz,
-                                    "contexto_rag": contexto_rag,
-                                }
+                                st.session_state["_argumentacao_pendente"] = st.session_state["_ultimo_contexto_arg"]
                                 st.rerun()
                             memoria.chat_memory.add_user_message(input_usuario)
                             memoria.chat_memory.add_ai_message(resposta)
@@ -1815,10 +1775,16 @@ def pagina_chat():
                             f"- Se houver objeção de preço ou qualidade, sugira como rebater\n\n"
                             f"{_historico_bloco}"
                             f"O vendedor perguntou: **{input_usuario}**\n\n"
-                            f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n\n"
+                            f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n"
+                            f"- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n"
+                            f"- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n"
+                            f"- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n"
+                            f"- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n"
+                            f"- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n"
+                            f"- GARANTIA FleetPro: 12 meses quando instalada pela concessionária CNH; 6 meses quando retirada no balcão ou via e-commerce.\n\n"
                             f"INSTRUÇÕES CRÍTICAS — SIGA RIGOROSAMENTE:\n"
-                            f"- Use APENAS as informações das fontes abaixo para responder.\n"
-                            f"- Se a informação não estiver nas fontes, responda EXATAMENTE: 'Não encontrei essa informação na base FleetPro.'\n"
+                            f"- Use APENAS as informações das fontes abaixo e do contexto da marca acima para responder.\n"
+                            f"- Se a informação não estiver nas fontes nem no contexto acima, responda EXATAMENTE: 'Não encontrei essa informação na base FleetPro.'\n"
                             f"- NÃO elabore, NÃO sugira, NÃO complete com conhecimento próprio quando os dados estiverem ausentes.\n"
                             f"- Sempre apresente os produtos como FleetPro, mesmo que a fonte mencione o fornecedor.\n\n"
                             f"Informações das fontes:\n\n"
@@ -1874,10 +1840,16 @@ def pagina_chat():
                             f"- Finalize sempre incentivando a buscar o FleetPro no revendedor mais próximo\n\n"
                             f"{_historico_bloco}"
                             f"O usuário perguntou: **{input_usuario}**\n\n"
-                            f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n\n"
+                            f"CONTEXTO IMPORTANTE SOBRE A MARCA FLEETPRO:\n"
+                            f"- FleetPro é a marca própria de peças de reposição da CNH Industrial para máquinas Case IH e New Holland.\n"
+                            f"- Os produtos FleetPro são fabricados por fornecedores homologados e distribuídos SEMPRE com a marca FleetPro.\n"
+                            f"- VV, TEEJET, IPESA, REXNORD, PETRONAS são FORNECEDORES dos produtos FleetPro — não são marcas concorrentes.\n"
+                            f"- Exemplo: as lâminas de corte VV são vendidas como 'Lâminas FleetPro', os lubrificantes Petronas como 'Lubrificantes FleetPro'.\n"
+                            f"- Quando o usuário perguntar sobre produtos VV, TEEJET etc, responda sempre referenciando como produtos FleetPro.\n"
+                            f"- GARANTIA FleetPro: 12 meses quando instalada pela concessionária CNH; 6 meses quando retirada no balcão ou via e-commerce.\n\n"
                             f"INSTRUÇÕES CRÍTICAS — SIGA RIGOROSAMENTE:\n"
-                            f"- Use APENAS as informações das fontes abaixo para responder.\n"
-                            f"- Se a informação não estiver nas fontes, responda EXATAMENTE: 'Não encontrei essa informação na base FleetPro.'\n"
+                            f"- Use APENAS as informações das fontes abaixo e do contexto da marca acima para responder.\n"
+                            f"- Se a informação não estiver nas fontes nem no contexto acima, responda EXATAMENTE: 'Não encontrei essa informação na base FleetPro.'\n"
                             f"- NÃO elabore, NÃO sugira, NÃO complete com conhecimento próprio quando os dados estiverem ausentes.\n"
                             f"- Sempre apresente os produtos como FleetPro, mesmo que a fonte mencione o fornecedor.\n\n"
                             f"Informações das fontes:\n\n"
