@@ -1680,7 +1680,20 @@ def pagina_chat():
             if usar_rag and chat_model is not None and not st.session_state.get("_rag_indisponivel"):
                 try:
                     vs = obter_vectorstore()
-                    contexto_rag, fontes_rag = buscar_no_rag(vs, input_normalizado)
+                    # Quando filtro ativo, monta query RAG focada no produto filtrado
+                    # (evita diluir similaridade com query longa do usuário)
+                    _df_fil_rag = st.session_state.get("_filtro_df")
+                    _fil_ativo_rag = st.session_state.get("_filtro_ativo", False)
+                    if _fil_ativo_rag and _df_fil_rag is not None and not _df_fil_rag.empty:
+                        _rag_parts = []
+                        for _col in ["description", "marketing_project"]:
+                            if _col in _df_fil_rag.columns:
+                                _v = _df_fil_rag[_col].dropna().astype(str).str.strip()
+                                _rag_parts.extend(_v[_v.str.len() > 0].head(5).tolist())
+                        _query_rag = " ".join(dict.fromkeys(_rag_parts))[:200] + " " + input_usuario
+                    else:
+                        _query_rag = input_normalizado
+                    contexto_rag, fontes_rag = buscar_no_rag(vs, _query_rag)
                 except Exception:
                     contexto_rag = ""
                     fontes_rag = []
