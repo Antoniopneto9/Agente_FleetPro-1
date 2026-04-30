@@ -2052,26 +2052,42 @@ def sidebar():
         # Aplica filtro de categoria para cascatear
         df_cat = df_side[df_side["marketing_project"].isin(cat_sel)].copy() if cat_sel else df_side.copy()
 
-        # ── Passo 2: Equipamento (cascateado por categoria) ──────────────────
-        _modelos_set = set()
-        for col in COLUNAS_MODELOS_EQUIP:
-            if col in df_cat.columns:
-                for cell in df_cat[col].dropna():
-                    for item in str(cell).split(";"):
-                        v = item.strip()
-                        if v and v not in ("-", "nan"):
-                            _modelos_set.add(v)
-        equip_sel = st.multiselect("Equipamento", sorted(_modelos_set), key="filtro_equip",
-                                   label_visibility="collapsed", placeholder="Equipamento / modelo")
+        # ── Passo 2: Marca + Tipo de máquina ────────────────────────────────
+        _MARCA_COLS = {
+            "Case IH":    ["tractor_case_ih","combine_case_ih","headers_case_ih",
+                           "sch_case_ih","sprayers_case_ih","planters_case_ih","other_machines_case_ih"],
+            "New Holland":["tractor_nhag","combine_nhag","headers_nhag",
+                           "sprayers_nhag","planters_nhag","forage_balers_and_others_nhag","other_machines_nhag"],
+        }
+        _TIPO_COLS = {
+            "Trator":        ["tractor_case_ih","tractor_nhag"],
+            "Colheitadeira": ["combine_case_ih","combine_nhag"],
+            "Plataforma":    ["headers_case_ih","headers_nhag"],
+            "Pulverizador":  ["sprayers_case_ih","sprayers_nhag"],
+            "Plantadeira":   ["planters_case_ih","planters_nhag"],
+            "Outros":        ["other_machines_case_ih","forage_balers_and_others_nhag","other_machines_nhag","sch_case_ih"],
+        }
 
-        # Aplica filtro de equipamento para cascatear
-        if equip_sel:
+        marca_sel = st.selectbox("Marca", ["(todas)"] + list(_MARCA_COLS.keys()),
+                                 key="filtro_marca", label_visibility="collapsed")
+        tipo_sel  = st.selectbox("Tipo",  ["(todos)"] + list(_TIPO_COLS.keys()),
+                                 key="filtro_tipo", label_visibility="collapsed")
+
+        # Determina colunas ativas pela interseção marca × tipo
+        if marca_sel != "(todas)" and tipo_sel != "(todos)":
+            cols_ativas = [c for c in _TIPO_COLS[tipo_sel] if c in _MARCA_COLS[marca_sel]]
+        elif marca_sel != "(todas)":
+            cols_ativas = _MARCA_COLS[marca_sel]
+        elif tipo_sel != "(todos)":
+            cols_ativas = _TIPO_COLS[tipo_sel]
+        else:
+            cols_ativas = []
+
+        if cols_ativas:
             mask_eq = pd.Series([False] * len(df_cat), index=df_cat.index)
-            for col in COLUNAS_MODELOS_EQUIP:
+            for col in cols_ativas:
                 if col in df_cat.columns:
-                    for eq in equip_sel:
-                        mask_eq |= df_cat[col].fillna("").astype(str).str.contains(
-                            re.escape(eq), case=False, na=False)
+                    mask_eq |= df_cat[col].notna() & ~df_cat[col].isin(["-","","nan"])
             df_equip = df_cat[mask_eq].copy()
         else:
             df_equip = df_cat.copy()
@@ -2410,10 +2426,10 @@ def main():
         sidebar()
         popup_feedback()
 
-    tab_chat, tab_catalogo = st.tabs(["💬 Chat", "📋 Catálogo"])
-    with tab_chat:
+    col_chat, col_cat = st.columns([1, 1], gap="medium")
+    with col_chat:
         pagina_chat()
-    with tab_catalogo:
+    with col_cat:
         pagina_catalogo()
 
 
