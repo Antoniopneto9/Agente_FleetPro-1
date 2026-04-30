@@ -1495,9 +1495,6 @@ def _eh_busca_simples(mensagem: str) -> bool:
 # UI – Chat principal
 # ======================
 def pagina_chat():
-    st.image("base_docs/fleetpro_logo.png", width=150)
-    st.divider()
-
     chat_model = st.session_state.get("chat")
     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
 
@@ -2038,75 +2035,70 @@ def sidebar():
         if st.session_state.get("_rag_indisponivel"):
             st.caption("⚠️ RAG indisponível (rede bloqueada).")
 
-    # ── Filtros do catálogo ──────────────────────────────────────────────────
+    # ── Filtros cascateados ──────────────────────────────────────────────────
     excel_path = os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL)
     csv_path   = os.path.join(BASE_DOCS_DIR, MATRIX_CSV)
     if not (os.path.exists(csv_path) or os.path.exists(excel_path)):
         return
     try:
         df_side = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
+        st.caption("🔍 Catálogo")
 
-        st.caption("🔍 Filtrar catálogo")
+        # ── Passo 1: Categoria ───────────────────────────────────────────────
+        cats_all = sorted(df_side["marketing_project"].dropna().astype(str).unique().tolist())
+        cat_sel = st.multiselect("Categoria", cats_all, key="filtro_categoria",
+                                 label_visibility="collapsed", placeholder="Categoria")
 
-        # Categoria
-        cats = sorted(df_side["marketing_project"].dropna().astype(str).unique().tolist())
-        cat_sel = st.multiselect("Categoria", cats, key="filtro_categoria", label_visibility="collapsed",
-                                 placeholder="Categoria")
+        # Aplica filtro de categoria para cascatear
+        df_cat = df_side[df_side["marketing_project"].isin(cat_sel)].copy() if cat_sel else df_side.copy()
 
-        # Equipamento / modelo — lista de modelos únicos extraídos das colunas de equip
+        # ── Passo 2: Equipamento (cascateado por categoria) ──────────────────
         _modelos_set = set()
         for col in COLUNAS_MODELOS_EQUIP:
-            if col in df_side.columns:
-                for cell in df_side[col].dropna():
+            if col in df_cat.columns:
+                for cell in df_cat[col].dropna():
                     for item in str(cell).split(";"):
                         v = item.strip()
                         if v and v not in ("-", "nan"):
                             _modelos_set.add(v)
-        modelos_lista = sorted(_modelos_set)
-        equip_sel = st.multiselect("Equipamento", modelos_lista, key="filtro_equip",
+        equip_sel = st.multiselect("Equipamento", sorted(_modelos_set), key="filtro_equip",
                                    label_visibility="collapsed", placeholder="Equipamento / modelo")
 
-        # PN com autocomplete
+        # Aplica filtro de equipamento para cascatear
+        if equip_sel:
+            mask_eq = pd.Series([False] * len(df_cat), index=df_cat.index)
+            for col in COLUNAS_MODELOS_EQUIP:
+                if col in df_cat.columns:
+                    for eq in equip_sel:
+                        mask_eq |= df_cat[col].fillna("").astype(str).str.contains(
+                            re.escape(eq), case=False, na=False)
+            df_equip = df_cat[mask_eq].copy()
+        else:
+            df_equip = df_cat.copy()
+
+        # ── Passo 3: PN (cascateado por categoria + equipamento) ─────────────
         pns_lista = sorted(
-            df_side["pn_fleetpro"].dropna().astype(str).str.strip()
+            df_equip["pn_fleetpro"].dropna().astype(str).str.strip()
             .loc[lambda s: s != ""].unique().tolist()
         )
         pn_sel = st.multiselect("PN", pns_lista, key="filtro_pn",
                                 label_visibility="collapsed", placeholder="PN FleetPro")
 
-        if st.button("🔎 Buscar", use_container_width=True, key="btn_filtro_buscar"):
-            df_r = df_side.copy()
+        # Resultado final — filtra em tempo real, sem botão
+        df_r = df_equip.copy()
+        if pn_sel:
+            pns_norm = {norm_pn(p) for p in pn_sel}
+            mask_pn = pd.Series([False] * len(df_r), index=df_r.index)
+            for col in COLUNAS_BUSCA_PN:
+                if col in df_r.columns:
+                    mask_pn |= df_r[col].apply(norm_pn).isin(pns_norm)
+            df_r = df_r[mask_pn]
 
-            if cat_sel:
-                df_r = df_r[df_r["marketing_project"].isin(cat_sel)]
+        # Salva para pagina_catalogo renderizar no main frame
+        st.session_state["_filtro_df"] = df_r
+        st.session_state["_filtro_ativo"] = bool(cat_sel or equip_sel or pn_sel)
+        st.caption(f"{len(df_r)} resultado(s)" if (cat_sel or equip_sel or pn_sel) else "")
 
-            if equip_sel:
-                mask_eq = pd.Series([False] * len(df_r), index=df_r.index)
-                for col in COLUNAS_MODELOS_EQUIP:
-                    if col in df_r.columns:
-                        for eq in equip_sel:
-                            mask_eq |= df_r[col].fillna("").astype(str).str.contains(
-                                re.escape(eq), case=False, na=False
-                            )
-                df_r = df_r[mask_eq]
-
-            if pn_sel:
-                pns_norm = {norm_pn(p) for p in pn_sel}
-                mask_pn = pd.Series([False] * len(df_r), index=df_r.index)
-                for col in COLUNAS_BUSCA_PN:
-                    if col in df_r.columns:
-                        mask_pn |= df_r[col].apply(norm_pn).isin(pns_norm)
-                df_r = df_r[mask_pn]
-
-            st.session_state["_filtro_resultado"] = df_r.head(200)
-            st.session_state["_filtro_total"] = len(df_r)
-
-        if "_filtro_resultado" in st.session_state:
-            df_show = st.session_state["_filtro_resultado"]
-            total_f = st.session_state["_filtro_total"]
-            st.caption(f"{total_f} resultado(s){' — top 200' if total_f > 200 else ''}")
-            cols_show = [c for c in ["description", "pn_fleetpro", "pn_gen", "marketing_project"] if c in df_show.columns]
-            st.dataframe(df_show[cols_show].reset_index(drop=True), use_container_width=True, height=250)
     except Exception as e:
         st.caption(f"Filtro indisponível: {e}")
 
@@ -2367,14 +2359,62 @@ def popup_feedback():
                         st.error(f"Erro ao salvar: {e}")
 
 
+def pagina_catalogo():
+    """Exibe resultado dos filtros da sidebar no main frame."""
+    df_r = st.session_state.get("_filtro_df")
+    ativo = st.session_state.get("_filtro_ativo", False)
+
+    if not ativo or df_r is None:
+        st.info("Use os filtros na sidebar para navegar pelo catálogo de peças FleetPro.")
+        return
+
+    total = len(df_r)
+    st.caption(f"**{total}** produto(s) encontrado(s){' — exibindo primeiros 500' if total > 500 else ''}")
+
+    if df_r.empty:
+        st.warning("Nenhum produto encontrado com os filtros selecionados.")
+        return
+
+    # Colunas relevantes para exibição
+    _COLS = [
+        "description", "pn_fleetpro", "pn_gen", "marketing_project",
+        "tractor_case_ih", "combine_case_ih", "tractor_nhag", "combine_nhag",
+        "modal", "launched_month",
+    ]
+    cols_show = [c for c in _COLS if c in df_r.columns]
+    df_show = df_r[cols_show].head(500).reset_index(drop=True)
+
+    # Renomeia colunas para exibição
+    rename = {
+        "description": "Descrição",
+        "pn_fleetpro": "PN FleetPro",
+        "pn_gen": "PN Genuíno",
+        "marketing_project": "Categoria",
+        "tractor_case_ih": "Trator Case IH",
+        "combine_case_ih": "Colheit. Case IH",
+        "tractor_nhag": "Trator NH",
+        "combine_nhag": "Colheit. NH",
+        "modal": "Modal",
+        "launched_month": "Lançamento",
+    }
+    df_show = df_show.rename(columns={k: v for k, v in rename.items() if k in df_show.columns})
+
+    st.dataframe(df_show, use_container_width=True, height=600)
+
+
 # ======================
 # Main
 # ======================
 def main():
-    pagina_chat()
     with st.sidebar:
         sidebar()
         popup_feedback()
+
+    tab_chat, tab_catalogo = st.tabs(["💬 Chat", "📋 Catálogo"])
+    with tab_chat:
+        pagina_chat()
+    with tab_catalogo:
+        pagina_catalogo()
 
 
 if __name__ == "__main__":
