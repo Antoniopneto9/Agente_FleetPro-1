@@ -2014,14 +2014,6 @@ def sidebar():
         if st.session_state.get("_rag_indisponivel"):
             st.warning("⚠️ RAG indisponível (rede bloqueada).")
 
-        if st.button("🔄 Reindexar RAG", use_container_width=True):
-            try:
-                resetar_vectorstore()
-                vs = obter_vectorstore()
-                st.success("Indexado!" if vs else "Nenhum documento encontrado.")
-            except Exception as e:
-                st.error(f"Erro: {e}")
-
 
 
 
