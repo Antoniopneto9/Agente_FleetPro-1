@@ -1499,11 +1499,10 @@ def pagina_chat():
     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
 
     if chat_model is None:
-        st.warning(
-            "**Sem IA ativa** — respostas limitadas a busca de peças.\n\n"
-            "🔑 Ative a IA gratuitamente: gere sua chave em "
-            "[console.groq.com/keys](https://console.groq.com/keys) e cole em **⚙️ Configurações** na sidebar. "
-            "Leva menos de 1 minuto."
+        st.info(
+            "**Sem IA ativa** — use os filtros do catálogo para navegar nas peças, "
+            "ou ative a IA inserindo sua chave API na sidebar. "
+            "Chave Groq gratuita: [console.groq.com/keys](https://console.groq.com/keys)"
         )
 
     for mensagem in memoria.buffer_as_messages:
@@ -1716,9 +1715,22 @@ def pagina_chat():
                     )
 
             # ── 3. Montar resposta ────────────────────────────────────────────
-            if usar_fp_matriz and not usar_rag and chat_model is None:
-                st.markdown(resultado_matriz)
-                resposta = resultado_matriz
+            if chat_model is None:
+                # Sem API: só responde se há resultado direto de PN/busca específica
+                # Bloqueia dump de produtos para queries genéricas ("olá", "me explique")
+                _query_especifica = bool(
+                    re.search(r"[A-Z0-9]{4,}", input_usuario.upper()) or  # tem algo parecido com PN
+                    st.session_state.get("_filtro_ativo", False)           # ou filtro ativo
+                )
+                if resultado_matriz and _query_especifica:
+                    st.markdown(resultado_matriz)
+                    resposta = resultado_matriz
+                else:
+                    resposta = (
+                        "Configure a chave API na sidebar para respostas com IA. "
+                        "Para buscar peças, use os filtros do catálogo ou digite um PN diretamente."
+                    )
+                    st.markdown(resposta)
 
             elif chat_model is not None:
                 # Bloqueia LLM se não há nenhum dado — evita alucinação
@@ -1742,13 +1754,13 @@ def pagina_chat():
                     )
                     # Adiciona matriz como fonte visível
                     fontes_rag.insert(0, {
-                        "label": "📊 Matriz FP — resultado encontrado",
+                        "label": "Matriz FP — resultado encontrado",
                         "path": "",
                         "tipo": "matriz"
                     })
                     # Adiciona Matriz FP como fonte consultada
                     fontes_rag.append({
-                        "label": "📊 Matriz FP (Excel) — " + MATRIX_EXCEL,
+                        "label": "Matriz FP (Excel) — " + MATRIX_EXCEL,
                         "path": os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL),
                         "tipo": "matriz_excel"
                     })
@@ -1794,7 +1806,7 @@ def pagina_chat():
                                 "contexto_rag": contexto_rag,
                             }
                             if st.button(
-                                "💬 Ver argumentação de venda",
+                                "Ver argumentacao de venda",
                                 key=_btn_key,
                                 type="secondary",
                             ):
@@ -1990,7 +2002,7 @@ def pagina_chat():
                     resposta = resultado_matriz
                 else:
                     resposta = (
-                        "⚙️ Nenhum modelo de linguagem inicializado.\n\n"
+                        "Nenhum modelo de linguagem inicializado.\n\n"
                         "Para perguntas e recomendações, configure o LLM na sidebar "
                         "(**Modelo de Linguagem**) e clique em **Inicializar Agente**.\n\n"
                         "Para buscar um PN diretamente, basta digitar o número da peça."
@@ -2030,56 +2042,51 @@ def _detectar_provedor_modelo(api_key: str):
 
 
 def sidebar():
-    # Busca sempre ativa na planilha inteira e RAG sempre ligado
     st.session_state["usar_fp_matriz"] = True
     st.session_state["usar_rag"] = True
     st.session_state["max_resultados_fp"] = 99999
 
-    _sem_api = st.session_state.get("chat") is None
+    # ── API Key (sem expander) ───────────────────────────────────────────────
+    _saved_key = ""
+    if _COOKIES_OK:
+        for _prov in CONFIG_MODELOS:
+            try:
+                _v = _cookie_manager.get(f"fp_apikey_{_prov.lower()}") or ""
+                if _v:
+                    _saved_key = _v
+                    break
+            except Exception:
+                pass
 
-    # ── Configurações ────────────────────────────────────────────────────────
-    with st.expander("⚙️ Configurações", expanded=_sem_api):
-        # Lê key salva em cookie
-        _saved_key = ""
-        if _COOKIES_OK:
-            for _prov in CONFIG_MODELOS:
+    api_key = st.text_input(
+        "API Key",
+        value=st.session_state.get("_api_key_raw", _saved_key),
+        type="password",
+        key="input_api_key_llm",
+        placeholder="gsk_... (Groq) ou sk-... (OpenAI)",
+        label_visibility="collapsed",
+    )
+    st.session_state["_api_key_raw"] = api_key
+
+    if st.button("Inicializar IA", use_container_width=True):
+        provedor, modelo = _detectar_provedor_modelo(api_key)
+        if provedor is None:
+            st.error("Key invalida. Groq: gsk_  |  OpenAI: sk-")
+        else:
+            inicializar_FleetPro(provedor, modelo, api_key)
+            if _COOKIES_OK and api_key:
                 try:
-                    _v = _cookie_manager.get(f"fp_apikey_{_prov.lower()}") or ""
-                    if _v:
-                        _saved_key = _v
-                        break
+                    _cookie_manager.set(f"fp_apikey_{provedor.lower()}", api_key, max_age=60*60*24*30)
                 except Exception:
                     pass
 
-        api_key = st.text_input(
-            "API key",
-            value=st.session_state.get("_api_key_raw", _saved_key),
-            type="password",
-            key="input_api_key_llm",
-            placeholder="gsk_... (Groq) ou sk-... (OpenAI)",
-        )
-        st.session_state["_api_key_raw"] = api_key
+    chat = st.session_state.get("chat")
+    if chat:
+        st.caption(f"IA ativa: {st.session_state.get('provedor')} / {st.session_state.get('modelo')}")
+    else:
+        st.caption("Groq gratuita: [console.groq.com/keys](https://console.groq.com/keys)")
 
-        if st.button("🚀 Inicializar", use_container_width=True):
-            provedor, modelo = _detectar_provedor_modelo(api_key)
-            if provedor is None:
-                st.error("Key inválida. Groq começa com gsk_, OpenAI com sk-.")
-            else:
-                inicializar_FleetPro(provedor, modelo, api_key)
-                if _COOKIES_OK and api_key:
-                    try:
-                        _cookie_manager.set(f"fp_apikey_{provedor.lower()}", api_key, max_age=60*60*24*30)
-                    except Exception:
-                        pass
-
-        chat = st.session_state.get("chat")
-        if chat:
-            st.success(f"✅ {st.session_state.get('provedor')} / {st.session_state.get('modelo')}")
-        else:
-            st.caption("Groq gratuita → [console.groq.com/keys](https://console.groq.com/keys)")
-
-        if st.session_state.get("_rag_indisponivel"):
-            st.caption("⚠️ RAG indisponível (rede bloqueada).")
+    st.divider()
 
     # ── Filtros cascateados ──────────────────────────────────────────────────
     excel_path = os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL)
@@ -2088,17 +2095,37 @@ def sidebar():
         return
     try:
         df_side = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
-        st.caption("🔍 Catálogo")
+        st.caption("Catalogo")
 
-        # ── Passo 1: Categoria ───────────────────────────────────────────────
+        # ── Categoria ───────────────────────────────────────────────────────
         cats_all = sorted(df_side["marketing_project"].dropna().astype(str).unique().tolist())
         cat_sel = st.multiselect("Categoria", cats_all, key="filtro_categoria",
                                  label_visibility="collapsed", placeholder="Categoria")
-
-        # Aplica filtro de categoria para cascatear
         df_cat = df_side[df_side["marketing_project"].isin(cat_sel)].copy() if cat_sel else df_side.copy()
 
-        # ── Passo 2: Marca + Tipo de máquina ────────────────────────────────
+        # ── Modal (Depot / DSH) ──────────────────────────────────────────────
+        modais_all = sorted(df_cat["modal"].dropna().astype(str).str.upper().unique().tolist()) if "modal" in df_cat.columns else []
+        if st.session_state.get("filtro_modal", "(todos)") not in ["(todos)"] + modais_all:
+            st.session_state["filtro_modal"] = "(todos)"
+        modal_sel = st.selectbox("Modal", ["(todos)"] + modais_all,
+                                 key="filtro_modal", label_visibility="collapsed")
+        if modal_sel != "(todos)" and "modal" in df_cat.columns:
+            df_cat = df_cat[df_cat["modal"].astype(str).str.upper() == modal_sel].copy()
+
+        # ── Segmento (AG / CE / AM) ──────────────────────────────────────────
+        _SEG_COLS = {"AG": "ag", "CE": "ce", "AM": "am"}
+        segs_disp = [s for s, c in _SEG_COLS.items() if c in df_cat.columns and df_cat[c].notna().any()]
+        seg_sel = st.multiselect("Segmento", segs_disp, key="filtro_segmento",
+                                 label_visibility="collapsed", placeholder="Segmento (AG/CE/AM)")
+        if seg_sel:
+            mask_seg = pd.Series([False] * len(df_cat), index=df_cat.index)
+            for s in seg_sel:
+                c = _SEG_COLS[s]
+                if c in df_cat.columns:
+                    mask_seg |= df_cat[c].notna() & ~df_cat[c].isin(["-","","nan"])
+            df_cat = df_cat[mask_seg].copy()
+
+        # ── Marca + Tipo ─────────────────────────────────────────────────────
         _MARCA_COLS = {
             "Case IH":    ["tractor_case_ih","combine_case_ih","headers_case_ih",
                            "sch_case_ih","sprayers_case_ih","planters_case_ih","other_machines_case_ih"],
@@ -2115,22 +2142,17 @@ def sidebar():
         }
 
         def _tem_dados(df, cols):
-            """Retorna True se df tem ao menos 1 linha com valor não-vazio em alguma das cols."""
             for c in cols:
                 if c in df.columns and df[c].notna().any() and (~df[c].isin(["-","","nan"])).any():
                     return True
             return False
 
-        marcas_disponiveis = [m for m, cols in _MARCA_COLS.items() if _tem_dados(df_cat, cols)]
-
-        # Reseta marca se valor salvo não está mais disponível
-        if st.session_state.get("filtro_marca", "(todas)") not in ["(todas)"] + marcas_disponiveis:
+        marcas_disp = [m for m, cols in _MARCA_COLS.items() if _tem_dados(df_cat, cols)]
+        if st.session_state.get("filtro_marca", "(todas)") not in ["(todas)"] + marcas_disp:
             st.session_state["filtro_marca"] = "(todas)"
-
-        marca_sel = st.selectbox("Marca", ["(todas)"] + marcas_disponiveis,
+        marca_sel = st.selectbox("Marca", ["(todas)"] + marcas_disp,
                                  key="filtro_marca", label_visibility="collapsed")
 
-        # Recalcula tipos disponíveis após filtro de marca
         df_cat_marca = df_cat.copy()
         if marca_sel != "(todas)":
             mask_m = pd.Series([False] * len(df_cat), index=df_cat.index)
@@ -2138,16 +2160,13 @@ def sidebar():
                 if col in df_cat.columns:
                     mask_m |= df_cat[col].notna() & ~df_cat[col].isin(["-","","nan"])
             df_cat_marca = df_cat[mask_m].copy()
-        tipos_disponiveis = [t for t, cols in _TIPO_COLS.items() if _tem_dados(df_cat_marca, cols)]
+        tipos_disp = [t for t, cols in _TIPO_COLS.items() if _tem_dados(df_cat_marca, cols)]
 
-        # Reseta tipo se valor salvo não está mais disponível
-        if st.session_state.get("filtro_tipo", "(todos)") not in ["(todos)"] + tipos_disponiveis:
+        if st.session_state.get("filtro_tipo", "(todos)") not in ["(todos)"] + tipos_disp:
             st.session_state["filtro_tipo"] = "(todos)"
-
-        tipo_sel = st.selectbox("Tipo", ["(todos)"] + tipos_disponiveis,
+        tipo_sel = st.selectbox("Tipo", ["(todos)"] + tipos_disp,
                                 key="filtro_tipo", label_visibility="collapsed")
 
-        # Determina colunas ativas pela interseção marca × tipo
         if marca_sel != "(todas)" and tipo_sel != "(todos)":
             cols_ativas = [c for c in _TIPO_COLS[tipo_sel] if c in _MARCA_COLS[marca_sel]]
         elif marca_sel != "(todas)":
@@ -2166,30 +2185,26 @@ def sidebar():
         else:
             df_equip = df_cat.copy()
 
-        # ── Passo 3: PN Genuíno (cascateado) ────────────────────────────────
+        # ── PN Genuino ───────────────────────────────────────────────────────
         pns_gen_lista = sorted(
             df_equip["pn_gen"].dropna().astype(str).str.strip()
             .loc[lambda s: s.str.len() > 0].unique().tolist()
         ) if "pn_gen" in df_equip.columns else []
-        pn_gen_sel = st.multiselect("PN Genuíno", pns_gen_lista, key="filtro_pn_gen",
-                                    label_visibility="collapsed", placeholder="PN Genuíno")
-
-        # Aplica filtro PN genuíno para cascatear no PN FleetPro
+        pn_gen_sel = st.multiselect("PN Genuino", pns_gen_lista, key="filtro_pn_gen",
+                                    label_visibility="collapsed", placeholder="PN Genuino")
         df_equip_pngen = df_equip.copy()
         if pn_gen_sel:
             pns_gen_norm = {norm_pn(p) for p in pn_gen_sel}
             mask_gen = df_equip["pn_gen"].apply(norm_pn).isin(pns_gen_norm) if "pn_gen" in df_equip.columns else pd.Series([False]*len(df_equip), index=df_equip.index)
             df_equip_pngen = df_equip[mask_gen].copy()
 
-        # ── Passo 4: PN FleetPro (cascateado) ───────────────────────────────
+        # ── PN FleetPro ──────────────────────────────────────────────────────
         pns_lista = sorted(
             df_equip_pngen["pn_fleetpro"].dropna().astype(str).str.strip()
             .loc[lambda s: s != ""].unique().tolist()
         )
         pn_sel = st.multiselect("PN FleetPro", pns_lista, key="filtro_pn",
                                 label_visibility="collapsed", placeholder="PN FleetPro")
-
-        # Resultado final
         df_r = df_equip_pngen.copy()
         if pn_sel:
             pns_norm = {norm_pn(p) for p in pn_sel}
@@ -2199,15 +2214,18 @@ def sidebar():
                     mask_pn |= df_r[col].apply(norm_pn).isin(pns_norm)
             df_r = df_r[mask_pn]
 
-        # Salva para pagina_catalogo renderizar no main frame
-        filtro_ativo = bool(cat_sel or (marca_sel != "(todas)") or (tipo_sel != "(todos)") or pn_gen_sel or pn_sel)
+        filtro_ativo = bool(
+            cat_sel or modal_sel != "(todos)" or seg_sel
+            or (marca_sel != "(todas)") or (tipo_sel != "(todos)")
+            or pn_gen_sel or pn_sel
+        )
         st.session_state["_filtro_df"] = df_r
         st.session_state["_filtro_ativo"] = filtro_ativo
         if filtro_ativo:
             st.caption(f"{len(df_r)} resultado(s)")
 
     except Exception as e:
-        st.caption(f"Filtro indisponível: {e}")
+        st.caption(f"Filtro indisponivel: {e}")
 
 
 
@@ -2429,7 +2447,7 @@ def popup_feedback():
 
     with st.sidebar:
         st.divider()
-        with st.expander("🐛 Reportar Erro", expanded=False):
+        with st.expander("Reportar Erro", expanded=False):
             reset_count = st.session_state["_feedback_reset_count"]
             descricao = st.text_area(
                 "O que aconteceu?",
@@ -2438,7 +2456,7 @@ def popup_feedback():
                 key=f"feedback_descricao_{reset_count}",
             )
 
-            if st.button("📤 Enviar Erro", use_container_width=True, key=f"btn_enviar_feedback_{reset_count}", type="primary"):
+            if st.button("Enviar Erro", use_container_width=True, key=f"btn_enviar_feedback_{reset_count}", type="primary"):
                 if not descricao.strip():
                     st.warning("Descreva o erro antes de enviar.")
                 else:
@@ -2466,12 +2484,25 @@ def popup_feedback():
                         st.error(f"Erro ao salvar: {e}")
 
 
-_COLS_CATALOGO = ["description", "pn_fleetpro", "pn_gen", "marketing_project",
-                  "tractor_case_ih", "combine_case_ih", "tractor_nhag", "combine_nhag"]
+_COLS_CATALOGO = ["marketing_project", "description", "pn_fleetpro", "pn_gen",
+                  "modal", "ag", "ce", "am",
+                  "tractor_case_ih", "combine_case_ih", "sprayers_case_ih",
+                  "tractor_nhag", "combine_nhag", "sprayers_nhag"]
 _RENAME_CATALOGO = {
-    "description": "Descrição", "pn_fleetpro": "PN FleetPro", "pn_gen": "PN Genuíno",
-    "marketing_project": "Categoria", "tractor_case_ih": "Trator CaseIH",
-    "combine_case_ih": "Colh. CaseIH", "tractor_nhag": "Trator NH", "combine_nhag": "Colh. NH",
+    "marketing_project": "Categoria",
+    "description":       "Descricao",
+    "pn_fleetpro":       "PN FleetPro",
+    "pn_gen":            "PN Genuino",
+    "modal":             "Modal",
+    "ag":                "AG",
+    "ce":                "CE",
+    "am":                "AM",
+    "tractor_case_ih":   "Trator Case IH",
+    "combine_case_ih":   "Colheitadeira Case IH",
+    "sprayers_case_ih":  "Pulverizador Case IH",
+    "tractor_nhag":      "Trator NH",
+    "combine_nhag":      "Colheitadeira NH",
+    "sprayers_nhag":     "Pulverizador NH",
 }
 
 def _df_para_exibir(df_r):
@@ -2492,7 +2523,7 @@ def pagina_chat_com_preview():
         with _c1:
             st.caption(f"**Catálogo — {total} produto(s)**")
         with _c2:
-            if total > 7 and st.button("⊞", key="btn_ver_completa", help="Ver tabela completa"):
+            if total > 7 and st.button("[+]", key="btn_ver_completa", help="Ver tabela completa"):
                 st.session_state["_pagina"] = "catalogo"
                 st.rerun()
         if df_r.empty:
@@ -2506,7 +2537,7 @@ def pagina_chat_com_preview():
 
 def pagina_catalogo():
     """Tela de catálogo completo — volta ao chat sem perder sessão."""
-    if st.button("← Voltar ao chat", key="btn_voltar_chat"):
+    if st.button("< Voltar ao chat", key="btn_voltar_chat"):
         st.session_state["_pagina"] = "chat"
         st.rerun()
 
