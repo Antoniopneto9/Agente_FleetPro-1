@@ -1631,6 +1631,19 @@ def pagina_chat():
                 if _detectar_pergunta_contagem(input_usuario):
                     resultado_matriz = f"O portfólio FleetPro possui **{len(df_fp)} itens** cadastrados na Matriz FP."
 
+                # Se filtro do catálogo ativo, enriquece query com PN + descrição filtrados
+                _df_fil = st.session_state.get("_filtro_df")
+                _fil_ativo = st.session_state.get("_filtro_ativo", False)
+                if _fil_ativo and _df_fil is not None and not _df_fil.empty:
+                    _extra_terms = []
+                    for _col in ["pn_fleetpro", "pn_gen", "description"]:
+                        if _col in _df_fil.columns:
+                            _vals = _df_fil[_col].dropna().astype(str).str.strip()
+                            _vals = _vals[_vals.str.len() > 0].head(10).tolist()
+                            _extra_terms.extend(_vals)
+                    if _extra_terms:
+                        input_normalizado = input_normalizado + " " + " ".join(_extra_terms[:15])
+
                 # Usa query normalizada (sinônimos expandidos) para melhorar detecções
                 tt_code = detectar_tt_code(input_normalizado)
                 colunas_equip = detectar_busca_por_equipamento(input_normalizado)
