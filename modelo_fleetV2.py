@@ -2433,24 +2433,26 @@ def _df_para_exibir(df_r):
 
 
 def pagina_chat_com_preview():
-    """Tela principal: chat + preview de 7 linhas do catálogo abaixo."""
-    pagina_chat()
-
+    """Tela principal: preview no topo + chat abaixo."""
     df_r = st.session_state.get("_filtro_df")
     ativo = st.session_state.get("_filtro_ativo", False)
 
     if ativo and df_r is not None:
-        st.divider()
         total = len(df_r)
-        st.caption(f"**Catálogo — {total} produto(s)** filtrado(s). Exibindo prévia:")
+        _c1, _c2 = st.columns([6, 1])
+        with _c1:
+            st.caption(f"**Catálogo — {total} produto(s)**")
+        with _c2:
+            if total > 7 and st.button("⊞", key="btn_ver_completa", help="Ver tabela completa"):
+                st.session_state["_pagina"] = "catalogo"
+                st.rerun()
         if df_r.empty:
             st.warning("Nenhum produto com esses filtros.")
         else:
             st.dataframe(_df_para_exibir(df_r).head(7), use_container_width=True, hide_index=True)
-            if total > 7:
-                if st.button("📋 Ver tabela completa", type="secondary", use_container_width=True):
-                    st.session_state["_pagina"] = "catalogo"
-                    st.rerun()
+        st.divider()
+
+    pagina_chat()
 
 
 def pagina_catalogo():
