@@ -2097,115 +2097,33 @@ def sidebar():
         df_side = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
         st.caption("Catalogo")
 
-        # ── Categoria ───────────────────────────────────────────────────────
+        # ── Segmentacao (MARKETING PROJECT) ─────────────────────────────────
         cats_all = sorted(df_side["marketing_project"].dropna().astype(str).unique().tolist())
-        cat_sel = st.multiselect("Categoria", cats_all, key="filtro_categoria",
-                                 label_visibility="collapsed", placeholder="Categoria")
+        cat_sel = st.multiselect("Segmentacao", cats_all, key="filtro_categoria",
+                                 label_visibility="collapsed", placeholder="Segmentacao")
         df_cat = df_side[df_side["marketing_project"].isin(cat_sel)].copy() if cat_sel else df_side.copy()
-
-        # ── Modal (Depot / DSH) ──────────────────────────────────────────────
-        modais_all = sorted(df_cat["modal"].dropna().astype(str).str.upper().unique().tolist()) if "modal" in df_cat.columns else []
-        if st.session_state.get("filtro_modal", "(todos)") not in ["(todos)"] + modais_all:
-            st.session_state["filtro_modal"] = "(todos)"
-        modal_sel = st.selectbox("Modal", ["(todos)"] + modais_all,
-                                 key="filtro_modal", label_visibility="collapsed")
-        if modal_sel != "(todos)" and "modal" in df_cat.columns:
-            df_cat = df_cat[df_cat["modal"].astype(str).str.upper() == modal_sel].copy()
-
-        # ── Segmento (AG / CE / AM) ──────────────────────────────────────────
-        _SEG_COLS = {"AG": "ag", "CE": "ce", "AM": "am"}
-        segs_disp = [s for s, c in _SEG_COLS.items() if c in df_cat.columns and df_cat[c].notna().any()]
-        seg_sel = st.multiselect("Segmento", segs_disp, key="filtro_segmento",
-                                 label_visibility="collapsed", placeholder="Segmento (AG/CE/AM)")
-        if seg_sel:
-            mask_seg = pd.Series([False] * len(df_cat), index=df_cat.index)
-            for s in seg_sel:
-                c = _SEG_COLS[s]
-                if c in df_cat.columns:
-                    mask_seg |= df_cat[c].notna() & ~df_cat[c].isin(["-","","nan"])
-            df_cat = df_cat[mask_seg].copy()
-
-        # ── Marca + Tipo ─────────────────────────────────────────────────────
-        _MARCA_COLS = {
-            "Case IH":    ["tractor_case_ih","combine_case_ih","headers_case_ih",
-                           "sch_case_ih","sprayers_case_ih","planters_case_ih","other_machines_case_ih"],
-            "New Holland":["tractor_nhag","combine_nhag","headers_nhag",
-                           "sprayers_nhag","planters_nhag","forage_balers_and_others_nhag","other_machines_nhag"],
-        }
-        _TIPO_COLS = {
-            "Trator":        ["tractor_case_ih","tractor_nhag"],
-            "Colheitadeira": ["combine_case_ih","combine_nhag"],
-            "Plataforma":    ["headers_case_ih","headers_nhag"],
-            "Pulverizador":  ["sprayers_case_ih","sprayers_nhag"],
-            "Plantadeira":   ["planters_case_ih","planters_nhag"],
-            "Outros":        ["other_machines_case_ih","forage_balers_and_others_nhag","other_machines_nhag","sch_case_ih"],
-        }
-
-        def _tem_dados(df, cols):
-            for c in cols:
-                if c in df.columns and df[c].notna().any() and (~df[c].isin(["-","","nan"])).any():
-                    return True
-            return False
-
-        marcas_disp = [m for m, cols in _MARCA_COLS.items() if _tem_dados(df_cat, cols)]
-        if st.session_state.get("filtro_marca", "(todas)") not in ["(todas)"] + marcas_disp:
-            st.session_state["filtro_marca"] = "(todas)"
-        marca_sel = st.selectbox("Marca", ["(todas)"] + marcas_disp,
-                                 key="filtro_marca", label_visibility="collapsed")
-
-        df_cat_marca = df_cat.copy()
-        if marca_sel != "(todas)":
-            mask_m = pd.Series([False] * len(df_cat), index=df_cat.index)
-            for col in _MARCA_COLS[marca_sel]:
-                if col in df_cat.columns:
-                    mask_m |= df_cat[col].notna() & ~df_cat[col].isin(["-","","nan"])
-            df_cat_marca = df_cat[mask_m].copy()
-        tipos_disp = [t for t, cols in _TIPO_COLS.items() if _tem_dados(df_cat_marca, cols)]
-
-        if st.session_state.get("filtro_tipo", "(todos)") not in ["(todos)"] + tipos_disp:
-            st.session_state["filtro_tipo"] = "(todos)"
-        tipo_sel = st.selectbox("Tipo", ["(todos)"] + tipos_disp,
-                                key="filtro_tipo", label_visibility="collapsed")
-
-        if marca_sel != "(todas)" and tipo_sel != "(todos)":
-            cols_ativas = [c for c in _TIPO_COLS[tipo_sel] if c in _MARCA_COLS[marca_sel]]
-        elif marca_sel != "(todas)":
-            cols_ativas = _MARCA_COLS[marca_sel]
-        elif tipo_sel != "(todos)":
-            cols_ativas = _TIPO_COLS[tipo_sel]
-        else:
-            cols_ativas = []
-
-        if cols_ativas:
-            mask_eq = pd.Series([False] * len(df_cat), index=df_cat.index)
-            for col in cols_ativas:
-                if col in df_cat.columns:
-                    mask_eq |= df_cat[col].notna() & ~df_cat[col].isin(["-","","nan"])
-            df_equip = df_cat[mask_eq].copy()
-        else:
-            df_equip = df_cat.copy()
 
         # ── PN Genuino ───────────────────────────────────────────────────────
         pns_gen_lista = sorted(
-            df_equip["pn_gen"].dropna().astype(str).str.strip()
+            df_cat["pn_gen"].dropna().astype(str).str.strip()
             .loc[lambda s: s.str.len() > 0].unique().tolist()
-        ) if "pn_gen" in df_equip.columns else []
+        ) if "pn_gen" in df_cat.columns else []
         pn_gen_sel = st.multiselect("PN Genuino", pns_gen_lista, key="filtro_pn_gen",
-                                    label_visibility="collapsed", placeholder="PN Genuino")
-        df_equip_pngen = df_equip.copy()
+                                    label_visibility="collapsed", placeholder="Part Number Genuino")
+        df_pngen = df_cat.copy()
         if pn_gen_sel:
             pns_gen_norm = {norm_pn(p) for p in pn_gen_sel}
-            mask_gen = df_equip["pn_gen"].apply(norm_pn).isin(pns_gen_norm) if "pn_gen" in df_equip.columns else pd.Series([False]*len(df_equip), index=df_equip.index)
-            df_equip_pngen = df_equip[mask_gen].copy()
+            mask_gen = df_cat["pn_gen"].apply(norm_pn).isin(pns_gen_norm) if "pn_gen" in df_cat.columns else pd.Series([False]*len(df_cat), index=df_cat.index)
+            df_pngen = df_cat[mask_gen].copy()
 
         # ── PN FleetPro ──────────────────────────────────────────────────────
         pns_lista = sorted(
-            df_equip_pngen["pn_fleetpro"].dropna().astype(str).str.strip()
+            df_pngen["pn_fleetpro"].dropna().astype(str).str.strip()
             .loc[lambda s: s != ""].unique().tolist()
         )
         pn_sel = st.multiselect("PN FleetPro", pns_lista, key="filtro_pn",
-                                label_visibility="collapsed", placeholder="PN FleetPro")
-        df_r = df_equip_pngen.copy()
+                                label_visibility="collapsed", placeholder="Part Number FleetPro")
+        df_r = df_pngen.copy()
         if pn_sel:
             pns_norm = {norm_pn(p) for p in pn_sel}
             mask_pn = pd.Series([False] * len(df_r), index=df_r.index)
@@ -2214,11 +2132,7 @@ def sidebar():
                     mask_pn |= df_r[col].apply(norm_pn).isin(pns_norm)
             df_r = df_r[mask_pn]
 
-        filtro_ativo = bool(
-            cat_sel or modal_sel != "(todos)" or seg_sel
-            or (marca_sel != "(todas)") or (tipo_sel != "(todos)")
-            or pn_gen_sel or pn_sel
-        )
+        filtro_ativo = bool(cat_sel or pn_gen_sel or pn_sel)
         st.session_state["_filtro_df"] = df_r
         st.session_state["_filtro_ativo"] = filtro_ativo
         if filtro_ativo:
@@ -2484,25 +2398,12 @@ def popup_feedback():
                         st.error(f"Erro ao salvar: {e}")
 
 
-_COLS_CATALOGO = ["marketing_project", "description", "pn_fleetpro", "pn_gen",
-                  "modal", "ag", "ce", "am",
-                  "tractor_case_ih", "combine_case_ih", "sprayers_case_ih",
-                  "tractor_nhag", "combine_nhag", "sprayers_nhag"]
+_COLS_CATALOGO = ["marketing_project", "description", "pn_gen", "pn_fleetpro"]
 _RENAME_CATALOGO = {
-    "marketing_project": "Categoria",
+    "marketing_project": "Segmentacao",
     "description":       "Descricao",
-    "pn_fleetpro":       "PN FleetPro",
-    "pn_gen":            "PN Genuino",
-    "modal":             "Modal",
-    "ag":                "AG",
-    "ce":                "CE",
-    "am":                "AM",
-    "tractor_case_ih":   "Trator Case IH",
-    "combine_case_ih":   "Colheitadeira Case IH",
-    "sprayers_case_ih":  "Pulverizador Case IH",
-    "tractor_nhag":      "Trator NH",
-    "combine_nhag":      "Colheitadeira NH",
-    "sprayers_nhag":     "Pulverizador NH",
+    "pn_gen":            "Part Number Genuino",
+    "pn_fleetpro":       "Part Number FleetPro",
 }
 
 def _df_para_exibir(df_r):
