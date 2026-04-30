@@ -2122,11 +2122,15 @@ def sidebar():
             return False
 
         marcas_disponiveis = [m for m, cols in _MARCA_COLS.items() if _tem_dados(df_cat, cols)]
-        tipos_disponiveis  = [t for t, cols in _TIPO_COLS.items()  if _tem_dados(df_cat, cols)]
+
+        # Reseta marca se valor salvo não está mais disponível
+        if st.session_state.get("filtro_marca", "(todas)") not in ["(todas)"] + marcas_disponiveis:
+            st.session_state["filtro_marca"] = "(todas)"
 
         marca_sel = st.selectbox("Marca", ["(todas)"] + marcas_disponiveis,
                                  key="filtro_marca", label_visibility="collapsed")
-        # Depois de escolher marca, recalcula tipos disponíveis nessa marca
+
+        # Recalcula tipos disponíveis após filtro de marca
         df_cat_marca = df_cat.copy()
         if marca_sel != "(todas)":
             mask_m = pd.Series([False] * len(df_cat), index=df_cat.index)
@@ -2136,8 +2140,12 @@ def sidebar():
             df_cat_marca = df_cat[mask_m].copy()
         tipos_disponiveis = [t for t, cols in _TIPO_COLS.items() if _tem_dados(df_cat_marca, cols)]
 
-        tipo_sel  = st.selectbox("Tipo",  ["(todos)"] + tipos_disponiveis,
-                                 key="filtro_tipo", label_visibility="collapsed")
+        # Reseta tipo se valor salvo não está mais disponível
+        if st.session_state.get("filtro_tipo", "(todos)") not in ["(todos)"] + tipos_disponiveis:
+            st.session_state["filtro_tipo"] = "(todos)"
+
+        tipo_sel = st.selectbox("Tipo", ["(todos)"] + tipos_disponiveis,
+                                key="filtro_tipo", label_visibility="collapsed")
 
         # Determina colunas ativas pela interseção marca × tipo
         if marca_sel != "(todas)" and tipo_sel != "(todos)":
@@ -2158,16 +2166,31 @@ def sidebar():
         else:
             df_equip = df_cat.copy()
 
-        # ── Passo 3: PN (cascateado por categoria + equipamento) ─────────────
+        # ── Passo 3: PN Genuíno (cascateado) ────────────────────────────────
+        pns_gen_lista = sorted(
+            df_equip["pn_gen"].dropna().astype(str).str.strip()
+            .loc[lambda s: s.str.len() > 0].unique().tolist()
+        ) if "pn_gen" in df_equip.columns else []
+        pn_gen_sel = st.multiselect("PN Genuíno", pns_gen_lista, key="filtro_pn_gen",
+                                    label_visibility="collapsed", placeholder="PN Genuíno")
+
+        # Aplica filtro PN genuíno para cascatear no PN FleetPro
+        df_equip_pngen = df_equip.copy()
+        if pn_gen_sel:
+            pns_gen_norm = {norm_pn(p) for p in pn_gen_sel}
+            mask_gen = df_equip["pn_gen"].apply(norm_pn).isin(pns_gen_norm) if "pn_gen" in df_equip.columns else pd.Series([False]*len(df_equip), index=df_equip.index)
+            df_equip_pngen = df_equip[mask_gen].copy()
+
+        # ── Passo 4: PN FleetPro (cascateado) ───────────────────────────────
         pns_lista = sorted(
-            df_equip["pn_fleetpro"].dropna().astype(str).str.strip()
+            df_equip_pngen["pn_fleetpro"].dropna().astype(str).str.strip()
             .loc[lambda s: s != ""].unique().tolist()
         )
-        pn_sel = st.multiselect("PN", pns_lista, key="filtro_pn",
+        pn_sel = st.multiselect("PN FleetPro", pns_lista, key="filtro_pn",
                                 label_visibility="collapsed", placeholder="PN FleetPro")
 
-        # Resultado final — filtra em tempo real, sem botão
-        df_r = df_equip.copy()
+        # Resultado final
+        df_r = df_equip_pngen.copy()
         if pn_sel:
             pns_norm = {norm_pn(p) for p in pn_sel}
             mask_pn = pd.Series([False] * len(df_r), index=df_r.index)
@@ -2177,7 +2200,7 @@ def sidebar():
             df_r = df_r[mask_pn]
 
         # Salva para pagina_catalogo renderizar no main frame
-        filtro_ativo = bool(cat_sel or (marca_sel != "(todas)") or (tipo_sel != "(todos)") or pn_sel)
+        filtro_ativo = bool(cat_sel or (marca_sel != "(todas)") or (tipo_sel != "(todos)") or pn_gen_sel or pn_sel)
         st.session_state["_filtro_df"] = df_r
         st.session_state["_filtro_ativo"] = filtro_ativo
         if filtro_ativo:
