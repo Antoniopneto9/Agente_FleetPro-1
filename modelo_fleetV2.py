@@ -1288,6 +1288,9 @@ def buscar_por_description(df: "pd.DataFrame", mensagem: str, max_resultados: in
         "DISPONIVEIS", "DISPONIVEL", "VOCES", "TEMOS", "HAI", "EXISTE", "EXISTEM",
         "BUSCA", "BUSCAR", "ENCONTRA", "ACHAR", "THE", "AND", "FOR", "WITH",
         "HAVE", "SHOW", "FIND", "GET", "ALL", "CASO", "ESSE", "ESSA", "ISSO",
+        # Saudações — não devem disparar busca na description
+        "OLA", "OLÁ", "OI", "BOM", "DIA", "TARDE", "NOITE", "HELLO", "HI",
+        "HEY", "TUDO", "BEM", "CERTO", "OK", "SIM", "NAO", "NÃO",
     }
 
     # Mapeamento de sinônimos: variação do usuário → termo na base
@@ -1497,6 +1500,15 @@ def pagina_chat():
 
     chat_model = st.session_state.get("chat")
     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
+
+    if chat_model is None:
+        st.info(
+            "⚠️ **Modo consulta** — nenhum modelo de linguagem configurado.\n\n"
+            "Você pode buscar peças digitando um **PN**, **categoria** ou **equipamento** no chat abaixo, "
+            "ou usar os **filtros na sidebar** para navegar pelo catálogo.\n\n"
+            "Para respostas inteligentes (argumentação, objeções, cross-selling), "
+            "configure a API key em **⚙️ Configurações** na sidebar."
+        )
 
     for mensagem in memoria.buffer_as_messages:
         st.chat_message(mensagem.type).markdown(mensagem.content)
@@ -2013,6 +2025,61 @@ def sidebar():
 
         if st.session_state.get("_rag_indisponivel"):
             st.warning("⚠️ RAG indisponível (rede bloqueada).")
+
+    # ── Filtros do catálogo (sempre visíveis) ────────────────────────────────
+    st.divider()
+    st.caption("🔍 Filtrar catálogo")
+
+    excel_path = os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL)
+    csv_path   = os.path.join(BASE_DOCS_DIR, MATRIX_CSV)
+    if os.path.exists(csv_path) or os.path.exists(excel_path):
+        try:
+            df_side = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
+
+            # Filtro por categoria
+            cats = sorted(df_side["marketing_project"].dropna().unique().tolist())
+            cat_sel = st.multiselect("Categoria", cats, key="filtro_categoria")
+
+            # Filtro por equipamento (texto livre)
+            equip_sel = st.text_input("Equipamento / modelo", key="filtro_equip", placeholder="ex: PUMA, T7, 7230")
+
+            # Filtro por PN (texto livre)
+            pn_sel = st.text_input("PN (qualquer)", key="filtro_pn", placeholder="ex: 92245228FP")
+
+            if st.button("🔎 Buscar", use_container_width=True, key="btn_filtro_buscar"):
+                df_r = df_side.copy()
+
+                if cat_sel:
+                    df_r = df_r[df_r["marketing_project"].isin(cat_sel)]
+
+                if equip_sel.strip():
+                    eq = equip_sel.strip().upper()
+                    mask_eq = pd.Series([False] * len(df_r), index=df_r.index)
+                    for col in COLUNAS_MODELOS_EQUIP:
+                        if col in df_r.columns:
+                            mask_eq |= df_r[col].fillna("").astype(str).str.upper().str.contains(eq, na=False)
+                    df_r = df_r[mask_eq]
+
+                if pn_sel.strip():
+                    pn_q = norm_pn(pn_sel.strip())
+                    mask_pn = pd.Series([False] * len(df_r), index=df_r.index)
+                    for col in COLUNAS_BUSCA_PN:
+                        if col in df_r.columns:
+                            mask_pn |= df_r[col].apply(norm_pn) == pn_q
+                    df_r = df_r[mask_pn]
+
+                st.session_state["_filtro_resultado"] = df_r.head(200)
+                st.session_state["_filtro_total"] = len(df_r)
+
+            if "_filtro_resultado" in st.session_state:
+                df_show = st.session_state["_filtro_resultado"]
+                total_f = st.session_state["_filtro_total"]
+                st.caption(f"{total_f} resultado(s){' — exibindo 200' if total_f > 200 else ''}")
+                cols_show = ["description", "pn_fleetpro", "pn_gen", "marketing_project"]
+                cols_show = [c for c in cols_show if c in df_show.columns]
+                st.dataframe(df_show[cols_show].reset_index(drop=True), use_container_width=True)
+        except Exception as e:
+            st.caption(f"Filtro indisponível: {e}")
 
 
 
