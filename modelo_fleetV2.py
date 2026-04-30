@@ -1503,11 +1503,10 @@ def pagina_chat():
 
     if chat_model is None:
         st.warning(
-            "**Modo consulta** — sem IA ativa.\n\n"
-            "Digite um **PN**, **categoria** ou **equipamento** no chat para buscar peças, "
-            "ou use os **filtros na sidebar**.\n\n"
-            "Para respostas inteligentes, obtenha sua chave gratuita em "
-            "[console.groq.com/keys](https://console.groq.com/keys) e configure em **⚙️ Configurações**."
+            "**Sem IA ativa** — respostas limitadas a busca de peças.\n\n"
+            "🔑 Ative a IA gratuitamente: gere sua chave em "
+            "[console.groq.com/keys](https://console.groq.com/keys) e cole em **⚙️ Configurações** na sidebar. "
+            "Leva menos de 1 minuto."
         )
 
     for mensagem in memoria.buffer_as_messages:
@@ -1977,111 +1976,139 @@ def pagina_chat():
 # ======================
 # UI – Barra lateral
 # ======================
-def sidebar():
-    st.image("base_docs/cnh_logo.png", width=180)
+def _detectar_provedor_modelo(api_key: str):
+    """Detecta provedor e modelo a partir do prefixo da API key."""
+    k = (api_key or "").strip()
+    if k.startswith("gsk_"):
+        return "Groq", "llama-3.3-70b-versatile"
+    if k.startswith("sk-"):
+        return "OpenAI", "gpt-4o-mini"
+    return None, None
 
+
+def sidebar():
     # Busca sempre ativa na planilha inteira e RAG sempre ligado
     st.session_state["usar_fp_matriz"] = True
     st.session_state["usar_rag"] = True
-    st.session_state["max_resultados_fp"] = 99999  # planilha inteira
+    st.session_state["max_resultados_fp"] = 99999
 
     _sem_api = st.session_state.get("chat") is None
-    with st.expander("⚙️ Configurações", expanded=_sem_api):
-        provedor = st.selectbox("Provedor", list(CONFIG_MODELOS.keys()), key="sel_provedor")
-        modelo = st.selectbox("Modelo", CONFIG_MODELOS[provedor]["modelos"], key="sel_modelo")
 
-        _cookie_key = f"fp_apikey_{provedor.lower()}"
+    # ── Configurações ────────────────────────────────────────────────────────
+    with st.expander("⚙️ Configurações", expanded=_sem_api):
+        # Lê key salva em cookie
         _saved_key = ""
         if _COOKIES_OK:
-            try:
-                _saved_key = _cookie_manager.get(_cookie_key) or ""
-            except Exception:
-                _saved_key = ""
-
-        api_key = st.text_input(
-            f"API key ({provedor})",
-            value=st.session_state.get(f"api_key_{provedor}", _saved_key),
-            type="password",
-            key="input_api_key_llm",
-        )
-        st.session_state[f"api_key_{provedor}"] = api_key
-
-        if provedor == "OpenAI" and api_key:
-            st.session_state["api_key_openai_rag"] = api_key
-
-        if st.button("🚀 Inicializar", use_container_width=True):
-            inicializar_FleetPro(provedor, modelo, api_key)
-            if _COOKIES_OK and api_key:
+            for _prov in CONFIG_MODELOS:
                 try:
-                    _cookie_manager.set(_cookie_key, api_key, max_age=60*60*24*30)
+                    _v = _cookie_manager.get(f"fp_apikey_{_prov.lower()}") or ""
+                    if _v:
+                        _saved_key = _v
+                        break
                 except Exception:
                     pass
 
-        st.divider()
+        api_key = st.text_input(
+            "API key",
+            value=st.session_state.get("_api_key_raw", _saved_key),
+            type="password",
+            key="input_api_key_llm",
+            placeholder="gsk_... (Groq) ou sk-... (OpenAI)",
+        )
+        st.session_state["_api_key_raw"] = api_key
+
+        if st.button("🚀 Inicializar", use_container_width=True):
+            provedor, modelo = _detectar_provedor_modelo(api_key)
+            if provedor is None:
+                st.error("Key inválida. Groq começa com gsk_, OpenAI com sk-.")
+            else:
+                inicializar_FleetPro(provedor, modelo, api_key)
+                if _COOKIES_OK and api_key:
+                    try:
+                        _cookie_manager.set(f"fp_apikey_{provedor.lower()}", api_key, max_age=60*60*24*30)
+                    except Exception:
+                        pass
+
         chat = st.session_state.get("chat")
         if chat:
             st.success(f"✅ {st.session_state.get('provedor')} / {st.session_state.get('modelo')}")
         else:
-            st.warning("⚠️ Nenhum modelo inicializado.")
-            st.caption("API Groq gratuita → [console.groq.com/keys](https://console.groq.com/keys)")
+            st.caption("Groq gratuita → [console.groq.com/keys](https://console.groq.com/keys)")
 
         if st.session_state.get("_rag_indisponivel"):
-            st.warning("⚠️ RAG indisponível (rede bloqueada).")
+            st.caption("⚠️ RAG indisponível (rede bloqueada).")
 
-    # ── Filtros do catálogo (sempre visíveis) ────────────────────────────────
-    st.divider()
-    st.caption("🔍 Filtrar catálogo")
-
+    # ── Filtros do catálogo ──────────────────────────────────────────────────
     excel_path = os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL)
     csv_path   = os.path.join(BASE_DOCS_DIR, MATRIX_CSV)
-    if os.path.exists(csv_path) or os.path.exists(excel_path):
-        try:
-            df_side = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
+    if not (os.path.exists(csv_path) or os.path.exists(excel_path)):
+        return
+    try:
+        df_side = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
 
-            # Filtro por categoria
-            cats = sorted(df_side["marketing_project"].dropna().unique().tolist())
-            cat_sel = st.multiselect("Categoria", cats, key="filtro_categoria")
+        st.caption("🔍 Filtrar catálogo")
 
-            # Filtro por equipamento (texto livre)
-            equip_sel = st.text_input("Equipamento / modelo", key="filtro_equip", placeholder="ex: PUMA, T7, 7230")
+        # Categoria
+        cats = sorted(df_side["marketing_project"].dropna().astype(str).unique().tolist())
+        cat_sel = st.multiselect("Categoria", cats, key="filtro_categoria", label_visibility="collapsed",
+                                 placeholder="Categoria")
 
-            # Filtro por PN (texto livre)
-            pn_sel = st.text_input("PN (qualquer)", key="filtro_pn", placeholder="ex: 92245228FP")
+        # Equipamento / modelo — lista de modelos únicos extraídos das colunas de equip
+        _modelos_set = set()
+        for col in COLUNAS_MODELOS_EQUIP:
+            if col in df_side.columns:
+                for cell in df_side[col].dropna():
+                    for item in str(cell).split(";"):
+                        v = item.strip()
+                        if v and v not in ("-", "nan"):
+                            _modelos_set.add(v)
+        modelos_lista = sorted(_modelos_set)
+        equip_sel = st.multiselect("Equipamento", modelos_lista, key="filtro_equip",
+                                   label_visibility="collapsed", placeholder="Equipamento / modelo")
 
-            if st.button("🔎 Buscar", use_container_width=True, key="btn_filtro_buscar"):
-                df_r = df_side.copy()
+        # PN com autocomplete
+        pns_lista = sorted(
+            df_side["pn_fleetpro"].dropna().astype(str).str.strip()
+            .loc[lambda s: s != ""].unique().tolist()
+        )
+        pn_sel = st.multiselect("PN", pns_lista, key="filtro_pn",
+                                label_visibility="collapsed", placeholder="PN FleetPro")
 
-                if cat_sel:
-                    df_r = df_r[df_r["marketing_project"].isin(cat_sel)]
+        if st.button("🔎 Buscar", use_container_width=True, key="btn_filtro_buscar"):
+            df_r = df_side.copy()
 
-                if equip_sel.strip():
-                    eq = equip_sel.strip().upper()
-                    mask_eq = pd.Series([False] * len(df_r), index=df_r.index)
-                    for col in COLUNAS_MODELOS_EQUIP:
-                        if col in df_r.columns:
-                            mask_eq |= df_r[col].fillna("").astype(str).str.upper().str.contains(eq, na=False)
-                    df_r = df_r[mask_eq]
+            if cat_sel:
+                df_r = df_r[df_r["marketing_project"].isin(cat_sel)]
 
-                if pn_sel.strip():
-                    pn_q = norm_pn(pn_sel.strip())
-                    mask_pn = pd.Series([False] * len(df_r), index=df_r.index)
-                    for col in COLUNAS_BUSCA_PN:
-                        if col in df_r.columns:
-                            mask_pn |= df_r[col].apply(norm_pn) == pn_q
-                    df_r = df_r[mask_pn]
+            if equip_sel:
+                mask_eq = pd.Series([False] * len(df_r), index=df_r.index)
+                for col in COLUNAS_MODELOS_EQUIP:
+                    if col in df_r.columns:
+                        for eq in equip_sel:
+                            mask_eq |= df_r[col].fillna("").astype(str).str.contains(
+                                re.escape(eq), case=False, na=False
+                            )
+                df_r = df_r[mask_eq]
 
-                st.session_state["_filtro_resultado"] = df_r.head(200)
-                st.session_state["_filtro_total"] = len(df_r)
+            if pn_sel:
+                pns_norm = {norm_pn(p) for p in pn_sel}
+                mask_pn = pd.Series([False] * len(df_r), index=df_r.index)
+                for col in COLUNAS_BUSCA_PN:
+                    if col in df_r.columns:
+                        mask_pn |= df_r[col].apply(norm_pn).isin(pns_norm)
+                df_r = df_r[mask_pn]
 
-            if "_filtro_resultado" in st.session_state:
-                df_show = st.session_state["_filtro_resultado"]
-                total_f = st.session_state["_filtro_total"]
-                st.caption(f"{total_f} resultado(s){' — exibindo 200' if total_f > 200 else ''}")
-                cols_show = ["description", "pn_fleetpro", "pn_gen", "marketing_project"]
-                cols_show = [c for c in cols_show if c in df_show.columns]
-                st.dataframe(df_show[cols_show].reset_index(drop=True), use_container_width=True)
-        except Exception as e:
-            st.caption(f"Filtro indisponível: {e}")
+            st.session_state["_filtro_resultado"] = df_r.head(200)
+            st.session_state["_filtro_total"] = len(df_r)
+
+        if "_filtro_resultado" in st.session_state:
+            df_show = st.session_state["_filtro_resultado"]
+            total_f = st.session_state["_filtro_total"]
+            st.caption(f"{total_f} resultado(s){' — top 200' if total_f > 200 else ''}")
+            cols_show = [c for c in ["description", "pn_fleetpro", "pn_gen", "marketing_project"] if c in df_show.columns]
+            st.dataframe(df_show[cols_show].reset_index(drop=True), use_container_width=True, height=250)
+    except Exception as e:
+        st.caption(f"Filtro indisponível: {e}")
 
 
 
