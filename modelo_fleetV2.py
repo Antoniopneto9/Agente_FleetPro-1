@@ -1672,6 +1672,23 @@ def pagina_chat():
                     contexto_rag = ""
                     fontes_rag = []
 
+            # ── 2b. Injeta catálogo filtrado como contexto extra ──────────────
+            contexto_catalogo = ""
+            _df_filtrado = st.session_state.get("_filtro_df")
+            _filtro_ativo_chat = st.session_state.get("_filtro_ativo", False)
+            if _filtro_ativo_chat and _df_filtrado is not None and len(_df_filtrado) > 0:
+                _cols_ctx = ["description", "pn_fleetpro", "pn_gen", "marketing_project"]
+                _cols_ctx = [c for c in _cols_ctx if c in _df_filtrado.columns]
+                _linhas = []
+                for _, row in _df_filtrado[_cols_ctx].head(50).iterrows():
+                    _linhas.append(" | ".join(str(row[c]) for c in _cols_ctx if pd.notna(row[c]) and str(row[c]) not in ("", "nan", "-")))
+                if _linhas:
+                    contexto_catalogo = (
+                        f"## Catálogo filtrado pelo usuário ({len(_df_filtrado)} produto(s))\n\n"
+                        + "\n".join(f"- {l}" for l in _linhas)
+                        + ("\n\n*(listagem limitada a 50 itens)*" if len(_df_filtrado) > 50 else "")
+                    )
+
             # ── 3. Montar resposta ────────────────────────────────────────────
             if usar_fp_matriz and not usar_rag and chat_model is None:
                 st.markdown(resultado_matriz)
@@ -1680,7 +1697,7 @@ def pagina_chat():
             elif chat_model is not None:
                 # Bloqueia LLM se não há nenhum dado — evita alucinação
                 # Exceção: respostas de continuação ("sim", "não") usam histórico como contexto
-                if not resultado_matriz and not contexto_rag and not _eh_resposta_continuacao(input_usuario):
+                if not resultado_matriz and not contexto_rag and not contexto_catalogo and not _eh_resposta_continuacao(input_usuario):
                     resposta = "Não encontrei informações sobre isso na base FleetPro. Tente buscar por PN, categoria de produto ou equipamento."
                     st.markdown(resposta)
                     memoria.chat_memory.add_user_message(input_usuario)
@@ -1715,6 +1732,9 @@ def pagina_chat():
                         "## Conhecimento Adicional (guia de objeções / recomendações / site FleetPro)\n\n"
                         + contexto_rag
                     )
+
+                if contexto_catalogo:
+                    blocos.append(contexto_catalogo)
 
                 if blocos:
                     contexto_completo = "\n\n---\n\n".join(blocos)
@@ -2068,9 +2088,29 @@ def sidebar():
             "Outros":        ["other_machines_case_ih","forage_balers_and_others_nhag","other_machines_nhag","sch_case_ih"],
         }
 
-        marca_sel = st.selectbox("Marca", ["(todas)"] + list(_MARCA_COLS.keys()),
+        def _tem_dados(df, cols):
+            """Retorna True se df tem ao menos 1 linha com valor não-vazio em alguma das cols."""
+            for c in cols:
+                if c in df.columns and df[c].notna().any() and (~df[c].isin(["-","","nan"])).any():
+                    return True
+            return False
+
+        marcas_disponiveis = [m for m, cols in _MARCA_COLS.items() if _tem_dados(df_cat, cols)]
+        tipos_disponiveis  = [t for t, cols in _TIPO_COLS.items()  if _tem_dados(df_cat, cols)]
+
+        marca_sel = st.selectbox("Marca", ["(todas)"] + marcas_disponiveis,
                                  key="filtro_marca", label_visibility="collapsed")
-        tipo_sel  = st.selectbox("Tipo",  ["(todos)"] + list(_TIPO_COLS.keys()),
+        # Depois de escolher marca, recalcula tipos disponíveis nessa marca
+        df_cat_marca = df_cat.copy()
+        if marca_sel != "(todas)":
+            mask_m = pd.Series([False] * len(df_cat), index=df_cat.index)
+            for col in _MARCA_COLS[marca_sel]:
+                if col in df_cat.columns:
+                    mask_m |= df_cat[col].notna() & ~df_cat[col].isin(["-","","nan"])
+            df_cat_marca = df_cat[mask_m].copy()
+        tipos_disponiveis = [t for t, cols in _TIPO_COLS.items() if _tem_dados(df_cat_marca, cols)]
+
+        tipo_sel  = st.selectbox("Tipo",  ["(todos)"] + tipos_disponiveis,
                                  key="filtro_tipo", label_visibility="collapsed")
 
         # Determina colunas ativas pela interseção marca × tipo
