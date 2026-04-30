@@ -1502,12 +1502,12 @@ def pagina_chat():
     memoria: ConversationBufferMemory = st.session_state.get("memoria", ConversationBufferMemory())
 
     if chat_model is None:
-        st.info(
-            "⚠️ **Modo consulta** — nenhum modelo de linguagem configurado.\n\n"
-            "Você pode buscar peças digitando um **PN**, **categoria** ou **equipamento** no chat abaixo, "
-            "ou usar os **filtros na sidebar** para navegar pelo catálogo.\n\n"
-            "Para respostas inteligentes (argumentação, objeções, cross-selling), "
-            "configure a API key em **⚙️ Configurações** na sidebar."
+        st.warning(
+            "**Modo consulta** — sem IA ativa.\n\n"
+            "Digite um **PN**, **categoria** ou **equipamento** no chat para buscar peças, "
+            "ou use os **filtros na sidebar**.\n\n"
+            "Para respostas inteligentes, obtenha sua chave gratuita em "
+            "[console.groq.com/keys](https://console.groq.com/keys) e configure em **⚙️ Configurações**."
         )
 
     for mensagem in memoria.buffer_as_messages:
@@ -1985,7 +1985,8 @@ def sidebar():
     st.session_state["usar_rag"] = True
     st.session_state["max_resultados_fp"] = 99999  # planilha inteira
 
-    with st.expander("⚙️ Configurações", expanded=False):
+    _sem_api = st.session_state.get("chat") is None
+    with st.expander("⚙️ Configurações", expanded=_sem_api):
         provedor = st.selectbox("Provedor", list(CONFIG_MODELOS.keys()), key="sel_provedor")
         modelo = st.selectbox("Modelo", CONFIG_MODELOS[provedor]["modelos"], key="sel_modelo")
 
@@ -2022,6 +2023,7 @@ def sidebar():
             st.success(f"✅ {st.session_state.get('provedor')} / {st.session_state.get('modelo')}")
         else:
             st.warning("⚠️ Nenhum modelo inicializado.")
+            st.caption("API Groq gratuita → [console.groq.com/keys](https://console.groq.com/keys)")
 
         if st.session_state.get("_rag_indisponivel"):
             st.warning("⚠️ RAG indisponível (rede bloqueada).")
