@@ -1673,6 +1673,35 @@ def pagina_chat():
                     if resultado_descricao:
                         resultado_matriz = resultado_descricao
 
+            # ── 1b. Busca Databricks (fonte viva, replica Copilot Studio) ─────
+            resultado_databricks = ""
+            _db_token = st.session_state.get("databricks_token")
+            if _db_token:
+                try:
+                    import sys as _sys
+                    _src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+                    if _src not in _sys.path:
+                        _sys.path.insert(0, _src)
+                    from databricks_tool import buscar_fleetpro, formatar_resultado_markdown
+                    from entity_extractor import extract_entities
+
+                    _ents = extract_entities(input_normalizado)
+                    _pn_q = _ents.get("pns", [None])[0] if _ents.get("pns") else None
+                    _mod_q = _ents.get("equipamentos", [None])[0] if _ents.get("equipamentos") else None
+                    _cat_q = _ents.get("categorias", [None])[0] if _ents.get("categorias") else None
+
+                    _db_res = buscar_fleetpro(
+                        pn=_pn_q, modelo=_mod_q, categoria=_cat_q,
+                        token=_db_token, max_rows=10
+                    )
+                    if _db_res["encontrado"]:
+                        resultado_databricks = (
+                            "## Resultado Databricks (fonte ao vivo)\n\n"
+                            + formatar_resultado_markdown(_db_res)
+                        )
+                except Exception as _db_err:
+                    resultado_databricks = ""
+
             # ── 2. Busca RAG (documentos locais + site FleetPro) ──────────────
             contexto_rag = ""
             fontes_rag = []
@@ -1735,7 +1764,7 @@ def pagina_chat():
             elif chat_model is not None:
                 # Bloqueia LLM se não há nenhum dado — evita alucinação
                 # Exceção: respostas de continuação ("sim", "não") usam histórico como contexto
-                if not resultado_matriz and not contexto_rag and not contexto_catalogo and not _eh_resposta_continuacao(input_usuario):
+                if not resultado_matriz and not resultado_databricks and not contexto_rag and not contexto_catalogo and not _eh_resposta_continuacao(input_usuario):
                     resposta = "Não encontrei informações sobre isso na base FleetPro. Tente buscar por PN, categoria de produto ou equipamento."
                     st.markdown(resposta)
                     memoria.chat_memory.add_user_message(input_usuario)
@@ -1770,6 +1799,9 @@ def pagina_chat():
                         "## Conhecimento Adicional (guia de objeções / recomendações / site FleetPro)\n\n"
                         + contexto_rag
                     )
+
+                if resultado_databricks:
+                    blocos.append(resultado_databricks)
 
                 if contexto_catalogo:
                     blocos.append(contexto_catalogo)
@@ -2085,6 +2117,49 @@ def sidebar():
         st.caption(f"IA ativa: {st.session_state.get('provedor')} / {st.session_state.get('modelo')}")
     else:
         st.caption("Groq gratuita: [console.groq.com/keys](https://console.groq.com/keys)")
+
+    # ── Databricks Token ─────────────────────────────────────────────────────
+    _saved_db = ""
+    if _COOKIES_OK:
+        try:
+            _saved_db = _cookie_manager.get("fp_databricks_token") or ""
+        except Exception:
+            pass
+
+    db_token = st.text_input(
+        "Databricks Token",
+        value=st.session_state.get("_db_token_raw", _saved_db),
+        type="password",
+        key="input_databricks_token",
+        placeholder="dapiXXXXXXXXXXXXXXXX",
+        label_visibility="collapsed",
+    )
+    st.session_state["_db_token_raw"] = db_token
+
+    if st.button("Conectar Databricks", use_container_width=True):
+        if not db_token.strip():
+            st.error("Informe o token Databricks.")
+        else:
+            # Testa conexão com DESCRIBE rápido
+            try:
+                import sys as _sys
+                _src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+                if _src not in _sys.path:
+                    _sys.path.insert(0, _src)
+                from databricks_tool import _executar_sql, TABLE_FLEETPRO
+                _executar_sql(f"SELECT 1 FROM {TABLE_FLEETPRO} LIMIT 1", db_token.strip())
+                st.session_state["databricks_token"] = db_token.strip()
+                if _COOKIES_OK:
+                    try:
+                        _cookie_manager.set("fp_databricks_token", db_token.strip(), max_age=60*60*24*30)
+                    except Exception:
+                        pass
+                st.success("Databricks conectado.")
+            except Exception as _e:
+                st.error(f"Erro ao conectar: {_e}")
+
+    if st.session_state.get("databricks_token"):
+        st.caption("Databricks ativo")
 
     st.divider()
 
