@@ -1615,66 +1615,22 @@ def pagina_chat():
             # ── 1. Lookup no Excel ────────────────────────────────────────────
             fontes_rag = []
             resultado_matriz = ""
-            if usar_fp_matriz:
-                csv_path   = os.path.join(BASE_DOCS_DIR, MATRIX_CSV)
-                excel_path = os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL)
-                if not os.path.exists(csv_path) and not os.path.exists(excel_path):
-                    st.error(
-                        f"Nenhum arquivo de matriz encontrado em base_docs/. "
-                        f"Coloque {MATRIX_CSV} (preferido) ou {MATRIX_EXCEL} lá e reinicie o app."
-                    )
-                    st.stop()
-                df_fp = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
-
-                # Pergunta de contagem — responde diretamente com len(df)
-                if _detectar_pergunta_contagem(input_usuario):
-                    resultado_matriz = f"O portfólio FleetPro possui **{len(df_fp)} itens** cadastrados na Matriz FP."
-
-                # Se filtro do catálogo ativo, enriquece query com PN + descrição filtrados
-                _df_fil = st.session_state.get("_filtro_df")
-                _fil_ativo = st.session_state.get("_filtro_ativo", False)
-                if _fil_ativo and _df_fil is not None and not _df_fil.empty:
-                    _extra_terms = []
-                    for _col in ["pn_fleetpro", "pn_gen", "description"]:
-                        if _col in _df_fil.columns:
-                            _vals = _df_fil[_col].dropna().astype(str).str.strip()
-                            _vals = _vals[_vals.str.len() > 0].head(10).tolist()
-                            _extra_terms.extend(_vals)
-                    if _extra_terms:
-                        input_normalizado = input_normalizado + " " + " ".join(_extra_terms[:15])
-
-                # Usa query normalizada (sinônimos expandidos) para melhorar detecções
-                tt_code = detectar_tt_code(input_normalizado)
-                colunas_equip = detectar_busca_por_equipamento(input_normalizado)
-                termo_marketing = detectar_busca_marketing(input_normalizado)
-
-                if _detectar_pergunta_contagem(input_normalizado):
-                    pass  # já tratado acima
-                elif tt_code:
-                    # Busca por TT code
-                    resultado_matriz = buscar_por_tt_code(df_fp, tt_code, max_resultados)
-                elif colunas_equip and termo_marketing:
-                    # ── Busca combinada: equipamento + categoria ──────────────
-                    resultado_matriz = buscar_equip_e_marketing(
-                        df_fp, input_normalizado, colunas_equip, termo_marketing, max_resultados
-                    )
-                elif colunas_equip:
-                    # Busca por fabricante / tipo de máquina
-                    resultado_matriz = buscar_por_equipamento(df_fp, input_normalizado, colunas_equip, max_resultados)
-                elif termo_marketing:
-                    # Busca por categoria de produto na coluna MARKETING PROJECT
-                    resultado_matriz = buscar_por_marketing(df_fp, termo_marketing, input_normalizado, max_resultados)
-                else:
-                    resultado_matriz = procurar_pn(df_fp, input_normalizado, max_resultados)
-
-                # ── Fallback: busca por texto livre na coluna DESCRIPTION ──────
-                if not resultado_matriz or resultado_matriz.startswith("Não encontrei") or resultado_matriz.startswith("PN não encontrado"):
-                    resultado_descricao = buscar_por_description(df_fp, input_normalizado, max_resultados)
-                    if resultado_descricao:
-                        resultado_matriz = resultado_descricao
-
-            # ── 1b. Busca Databricks (fonte viva, replica Copilot Studio) ─────
             resultado_databricks = ""
+
+            # Se filtro do catálogo ativo, enriquece query com PN + descrição filtrados
+            _df_fil = st.session_state.get("_filtro_df")
+            _fil_ativo = st.session_state.get("_filtro_ativo", False)
+            if _fil_ativo and _df_fil is not None and not _df_fil.empty:
+                _extra_terms = []
+                for _col in ["pn_fleetpro", "pn_gen", "description"]:
+                    if _col in _df_fil.columns:
+                        _vals = _df_fil[_col].dropna().astype(str).str.strip()
+                        _vals = _vals[_vals.str.len() > 0].head(10).tolist()
+                        _extra_terms.extend(_vals)
+                if _extra_terms:
+                    input_normalizado = input_normalizado + " " + " ".join(_extra_terms[:15])
+
+            # ── 1. Busca determinística — Databricks (fonte primária) ─────────
             _db_token = st.session_state.get("databricks_token")
             if _db_token:
                 try:
@@ -1683,7 +1639,6 @@ def pagina_chat():
                     if _src not in _sys.path:
                         _sys.path.insert(0, _src)
                     from databricks_tool import buscar_fleetpro, formatar_resultado_markdown
-                    from entity_extractor import extract_entities
 
                     _ents = extract_entities(input_normalizado)
                     _pn_q = _ents.get("pns", [None])[0] if _ents.get("pns") else None
@@ -1701,6 +1656,32 @@ def pagina_chat():
                         )
                 except Exception as _db_err:
                     resultado_databricks = ""
+
+            # ── 1b. Fallback Excel — quando Databricks não conectado ──────────
+            if not _db_token and usar_fp_matriz:
+                excel_path = os.path.join(BASE_DOCS_DIR, MATRIX_EXCEL)
+                if os.path.exists(excel_path):
+                    df_fp = carregar_df_fp_matriz(excel_path, SHEET_FP_MATRIZ)
+                    if _detectar_pergunta_contagem(input_usuario):
+                        resultado_matriz = f"O portfólio FleetPro possui **{len(df_fp)} itens** cadastrados na Matriz FP."
+                    else:
+                        tt_code = detectar_tt_code(input_normalizado)
+                        colunas_equip = detectar_busca_por_equipamento(input_normalizado)
+                        termo_marketing = detectar_busca_marketing(input_normalizado)
+                        if tt_code:
+                            resultado_matriz = buscar_por_tt_code(df_fp, tt_code, max_resultados)
+                        elif colunas_equip and termo_marketing:
+                            resultado_matriz = buscar_equip_e_marketing(df_fp, input_normalizado, colunas_equip, termo_marketing, max_resultados)
+                        elif colunas_equip:
+                            resultado_matriz = buscar_por_equipamento(df_fp, input_normalizado, colunas_equip, max_resultados)
+                        elif termo_marketing:
+                            resultado_matriz = buscar_por_marketing(df_fp, termo_marketing, input_normalizado, max_resultados)
+                        else:
+                            resultado_matriz = procurar_pn(df_fp, input_normalizado, max_resultados)
+                        if not resultado_matriz or resultado_matriz.startswith("Não encontrei") or resultado_matriz.startswith("PN não encontrado"):
+                            resultado_descricao = buscar_por_description(df_fp, input_normalizado, max_resultados)
+                            if resultado_descricao:
+                                resultado_matriz = resultado_descricao
 
             # ── 2. Busca RAG (documentos locais + site FleetPro) ──────────────
             contexto_rag = ""
@@ -1751,9 +1732,10 @@ def pagina_chat():
                     re.search(r"[A-Z0-9]{4,}", input_usuario.upper()) or  # tem algo parecido com PN
                     st.session_state.get("_filtro_ativo", False)           # ou filtro ativo
                 )
-                if resultado_matriz and _query_especifica:
-                    st.markdown(resultado_matriz)
-                    resposta = resultado_matriz
+                _res_det = resultado_databricks or resultado_matriz
+                if _res_det and _query_especifica:
+                    st.markdown(_res_det)
+                    resposta = _res_det
                 else:
                     resposta = (
                         "Configure a chave API na sidebar para respostas com IA. "
